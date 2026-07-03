@@ -5,6 +5,7 @@ import tempfile
 import subprocess
 import zipfile
 import sys
+import base64
 from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime
@@ -19,16 +20,21 @@ from reportlab.lib.units import cm
 import yt_dlp
 from yt_dlp.utils import DownloadError
 
-st.set_page_config(page_title="Transcreve Fácil", page_icon="🎙️", layout="wide")
-
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v18.1 - identidade visual estável"
+APP_VERSION = "v18.3 - identidade visual com botoes"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
 ALLOWED_DOMAIN = "@tre-ba.jus.br"
 DEFAULT_USER = "vmsoares@tre-ba.jus.br"
 DEFAULT_PASSWORD = "transcreve123"
+
+# Usa o ícone oficial também como favicon/ícone da aba do navegador.
+st.set_page_config(
+    page_title="Transcreve Fácil",
+    page_icon=str(LOGO_ICON) if LOGO_ICON.exists() else "🎙️",
+    layout="wide",
+)
 
 
 
@@ -234,8 +240,145 @@ def inject_css():
     textarea, input, .stSelectbox div[data-baseweb="select"] > div {
         border-radius: 14px !important;
     }
+
+    .tf-brand-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+    .tf-brand-row img {
+        width: 88px;
+        height: 88px;
+        object-fit: contain;
+        border-radius: 24px;
+        filter: drop-shadow(0 12px 24px rgba(18,100,244,.18));
+    }
+    .tf-brand-title {
+        line-height: 1.03;
+    }
+    .tf-brand-title .one {
+        font-size: 2rem;
+        font-weight: 950;
+        color: var(--tf-navy);
+        letter-spacing: -.035em;
+    }
+    .tf-brand-title .two {
+        font-size: 2rem;
+        font-weight: 950;
+        color: var(--tf-cyan);
+        letter-spacing: -.035em;
+    }
+    .tf-hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 130px;
+        gap: 1.2rem;
+        align-items: center;
+    }
+    .tf-hero-icon {
+        width: 118px;
+        height: 118px;
+        object-fit: contain;
+        border-radius: 28px;
+        filter: drop-shadow(0 18px 28px rgba(18,100,244,.16));
+        justify-self: end;
+    }
+    .tf-sidebar-mini {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        margin-bottom: .8rem;
+    }
+    .tf-sidebar-mini img {
+        width: 58px;
+        height: 58px;
+        object-fit: contain;
+        filter: drop-shadow(0 10px 18px rgba(18,100,244,.14));
+    }
+    .tf-sidebar-mini .name {
+        line-height: 1.02;
+        font-weight: 950;
+        font-size: 1.35rem;
+        letter-spacing: -.03em;
+    }
+    .tf-sidebar-mini .name span:first-child { color: var(--tf-navy); }
+    .tf-sidebar-mini .name span:last-child { color: var(--tf-cyan); }
+    @media (max-width: 900px) {
+        .tf-hero-grid { grid-template-columns: 1fr; }
+        .tf-hero-icon { justify-self: start; width: 88px; height: 88px; }
+        .tf-topbar { flex-direction: column; align-items: stretch; }
+    }
+
+    .tf-side-callout {
+        margin: .95rem 0 1rem 0;
+        padding: 1rem;
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(0,184,200,.10), rgba(18,100,244,.07));
+        border: 1px solid var(--tf-border);
+        color: var(--tf-navy);
+        box-shadow: 0 12px 26px rgba(16,38,75,.05);
+    }
+    .tf-mini-card {
+        min-height: 154px;
+        border-radius: 22px;
+        padding: 1.05rem;
+        background: rgba(255,255,255,.94);
+        border: 1px solid var(--tf-border);
+        box-shadow: 0 16px 38px rgba(16,38,75,.06);
+        margin-bottom: .55rem;
+    }
+    .tf-mini-card p { color: var(--tf-muted); margin: .35rem 0 0 0; }
+    .tf-mini-icon {
+        width: 48px; height: 48px; border-radius: 16px;
+        display:flex; align-items:center; justify-content:center;
+        font-size:1.45rem; margin-bottom:.7rem;
+        color:#fff; background: linear-gradient(135deg, #15c7bd, #00a9d6);
+        box-shadow: 0 12px 24px rgba(16,38,75,.12);
+    }
+    .tf-mini-icon.purple { background: linear-gradient(135deg, #7c4dff, #b07cff); }
+    .tf-mini-icon.orange { background: linear-gradient(135deg, #ff7a1a, #ffbd4a); }
+    .tf-mini-icon.blue { background: linear-gradient(135deg, #246bfe, #2fa7ff); }
+
     </style>
     """, unsafe_allow_html=True)
+
+def asset_data_uri(path: Path) -> str:
+    """Retorna imagem local como data URI para uso seguro dentro de HTML/CSS."""
+    try:
+        if path.exists():
+            data = base64.b64encode(path.read_bytes()).decode("ascii")
+            return f"data:image/png;base64,{data}"
+    except Exception:
+        pass
+    return ""
+
+
+def brand_inline_html(compact: bool = False) -> str:
+    icon_uri = asset_data_uri(LOGO_ICON)
+    if icon_uri:
+        if compact:
+            return (
+                f'<div class="tf-sidebar-mini"><img src="{icon_uri}" alt="Transcreve Fácil">'
+                '<div class="name"><span>Transcreve</span><br><span>Fácil</span></div></div>'
+            )
+        return (
+            f'<div class="tf-brand-row"><img src="{icon_uri}" alt="Transcreve Fácil">'
+            '<div class="tf-brand-title"><div class="one">Transcreve</div><div class="two">Fácil</div></div></div>'
+        )
+    return (
+        '<div class="tf-brand-title"><div class="one">Transcreve</div><div class="two">Fácil</div></div>'
+    )
+
+
+def show_icon(width=120):
+    try:
+        if LOGO_ICON.exists():
+            st.image(str(LOGO_ICON), width=width)
+            return
+    except Exception:
+        pass
+    st.markdown("<div style='font-size:3rem;'>🎙️</div>", unsafe_allow_html=True)
+
 
 def show_logo(width=260):
     try:
@@ -318,7 +461,7 @@ def login_screen():
     left, right = st.columns([1.1, 0.95])
     with left:
         st.markdown("<div class='tf-card'>", unsafe_allow_html=True)
-        show_logo(330)
+        st.markdown(brand_inline_html(), unsafe_allow_html=True)
         st.markdown(
             """
             <h1 style="margin-top:.5rem;">Sua central privada de transcrição</h1>
@@ -799,40 +942,35 @@ def estimate_warning(file_mb: float, duration: float | None, model_size: str):
 # -------------------------
 def app_screen():
     inject_css()
-    user_email = st.session_state.get("user_email", "")
-    st.markdown(
-        f"""
-        <div class="tf-topbar">
-            <div class="tf-search">🔎 Buscar transcrições, arquivos ou ferramentas...</div>
-            <div class="tf-user"><span>🔔</span><span class="tf-avatar">{(user_email[:1] or 'V').upper()}</span><span>{user_email}<br><small style="color:#00aebd;">Uso privado</small></span></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f"""
-        <div class="tf-hero">
-            <h1>Transcritor de Vídeos e Áudios</h1>
-            <p>Envie arquivos, fragmente mídias, compacte documentos e gere transcrições em TXT, Word, PDF e SRT.</p>
-            <span class="tf-badge">✅ Recomendado: upload manual</span>
-            <span class="tf-badge blue">🧪 YouTube: recurso experimental</span>
-            <span class="tf-badge orange">⚡ Modelo online sugerido: small</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.caption(APP_VERSION)
 
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.markdown("<div class='tf-card'><div class='tf-icon teal'>📄</div><h3>Arquivos processados</h3><p>Transcreva vídeos, áudios e gere downloads editáveis.</p></div>", unsafe_allow_html=True)
-    with m2:
-        st.markdown("<div class='tf-card'><div class='tf-icon blue'>⏱️</div><h3>Tempo economizado</h3><p>Transforme aulas, reuniões e treinamentos em texto pesquisável.</p></div>", unsafe_allow_html=True)
-    with m3:
-        st.markdown("<div class='tf-card'><div class='tf-icon orange'>🧰</div><h3>Ferramentas integradas</h3><p>Fragmentador, compactador, PDF, Word, TXT e legendas SRT.</p></div>", unsafe_allow_html=True)
+    if "tf_page" not in st.session_state:
+        st.session_state["tf_page"] = "Inicio"
+
+    def go_to(page_name: str):
+        st.session_state["tf_page"] = page_name
+
+    user_email = st.session_state.get("user_email", "")
 
     with st.sidebar:
-        show_logo(220)
+        st.markdown(brand_inline_html(compact=True), unsafe_allow_html=True)
+        st.markdown("### Navegação")
+
+        nav_items = [
+            ("Inicio", "🏠", "Início"),
+            ("Transcrever", "🎙️", "Transcrever"),
+            ("Resultado", "📥", "Resultado"),
+            ("Prompts", "✨", "Prompts"),
+            ("Ferramentas", "🧰", "Ferramentas"),
+            ("YouTube local", "▶️", "YouTube local"),
+            ("Ajuda", "❔", "Ajuda"),
+        ]
+        for page_key, icon, label in nav_items:
+            selected = st.session_state.get("tf_page") == page_key
+            if st.button(f"{icon}  {label}", key=f"nav_{page_key}", type="primary" if selected else "secondary", use_container_width=True):
+                go_to(page_key)
+                st.rerun()
+
+        st.markdown("<div class='tf-side-callout'>🚀 <b>Transcreva mais, organize melhor e economize tempo.</b></div>", unsafe_allow_html=True)
         st.divider()
         st.header("Configurações")
         model_size = st.selectbox("Modelo", ["small", "medium", "large-v3"], index=0)
@@ -846,16 +984,76 @@ def app_screen():
         st.write(f"Duração: até {RECOMMENDED_MAX_MINUTES} min")
         st.write("Modelo online: small")
 
-        if st.button("Limpar resultado atual"):
+        if st.button("🧹 Limpar resultado atual", use_container_width=True):
             for key in ["last_transcription", "last_plain_text", "last_segments", "last_metadata"]:
                 st.session_state.pop(key, None)
             st.success("Resultado limpo.")
 
-    tab_transcrever, tab_resultado, tab_prompts, tab_ferramentas, tab_youtube_local, tab_ajuda = st.tabs(
-        ["1. Transcrever", "2. Resultado", "3. Prompts", "Ferramentas", "YouTube local", "Ajuda"]
+    st.markdown(
+        f"""
+        <div class="tf-topbar">
+            <div class="tf-search">🔎 Buscar transcrições, arquivos ou ferramentas...</div>
+            <div class="tf-user"><span>🔔</span><span class="tf-avatar">{(user_email[:1] or 'V').upper()}</span><span>{user_email}<br><small style="color:#00aebd;">Uso privado</small></span></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    with tab_transcrever:
+    page = st.session_state.get("tf_page", "Inicio")
+
+    if page == "Inicio":
+        hero_icon_uri = asset_data_uri(LOGO_ICON)
+        hero_icon_html = f'<img class="tf-hero-icon" src="{hero_icon_uri}" alt="Transcreve Fácil">' if hero_icon_uri else '<div class="tf-hero-icon" style="font-size:4rem; display:flex; align-items:center; justify-content:center;">🎙️</div>'
+        st.markdown(
+            f"""
+            <div class="tf-hero">
+                <div class="tf-hero-grid">
+                    <div>
+                        <h1>Transcritor de Vídeos e Áudios</h1>
+                        <p>Envie arquivos, fragmente mídias, compacte documentos e gere transcrições em TXT, Word, PDF e SRT.</p>
+                        <span class="tf-badge">✅ Recomendado: upload manual</span>
+                        <span class="tf-badge blue">🧪 YouTube: recurso experimental</span>
+                        <span class="tf-badge orange">⚡ Modelo online sugerido: small</span>
+                    </div>
+                    {hero_icon_html}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.caption(APP_VERSION)
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("<div class='tf-card'><div class='tf-icon teal'>📄</div><h3>Arquivos processados</h3><p>Transcreva vídeos, áudios e gere downloads editáveis.</p></div>", unsafe_allow_html=True)
+        with c2:
+            st.markdown("<div class='tf-card'><div class='tf-icon blue'>⏱️</div><h3>Tempo economizado</h3><p>Transforme aulas, reuniões e treinamentos em texto pesquisável.</p></div>", unsafe_allow_html=True)
+        with c3:
+            st.markdown("<div class='tf-card'><div class='tf-icon orange'>🧰</div><h3>Ferramentas integradas</h3><p>Fragmentador, compactador, PDF, Word, TXT e legendas SRT.</p></div>", unsafe_allow_html=True)
+
+        st.markdown("### Ferramentas rápidas")
+        q1, q2, q3, q4 = st.columns(4)
+        with q1:
+            st.markdown("<div class='tf-mini-card'><div class='tf-mini-icon'>🎙️</div><b>Nova transcrição</b><p>Enviar vídeo ou áudio.</p></div>", unsafe_allow_html=True)
+            if st.button("Abrir Transcrever", key="quick_transcrever", use_container_width=True):
+                go_to("Transcrever"); st.rerun()
+        with q2:
+            st.markdown("<div class='tf-mini-card'><div class='tf-mini-icon purple'>✂️</div><b>Fragmentador</b><p>Dividir arquivos grandes.</p></div>", unsafe_allow_html=True)
+            if st.button("Abrir Ferramentas", key="quick_ferramentas", use_container_width=True):
+                go_to("Ferramentas"); st.rerun()
+        with q3:
+            st.markdown("<div class='tf-mini-card'><div class='tf-mini-icon orange'>📥</div><b>Resultado</b><p>Baixar TXT, Word, PDF e SRT.</p></div>", unsafe_allow_html=True)
+            if st.button("Ver Resultado", key="quick_resultado", use_container_width=True):
+                go_to("Resultado"); st.rerun()
+        with q4:
+            st.markdown("<div class='tf-mini-card'><div class='tf-mini-icon blue'>✨</div><b>Prompts</b><p>Resumo, ata e tabela prática.</p></div>", unsafe_allow_html=True)
+            if st.button("Gerar Prompts", key="quick_prompts", use_container_width=True):
+                go_to("Prompts"); st.rerun()
+
+        st.markdown("<div class='tf-card'><h3>Fluxo recomendado</h3><p><b>1.</b> Transcrever → <b>2.</b> Resultado → <b>3.</b> Prompts ou Ferramentas. Para YouTube, use primeiro o modo local quando houver bloqueio.</p></div>", unsafe_allow_html=True)
+        return
+
+    if page == "Transcrever":
         st.warning(
             "Use URLs apenas para vídeos seus, autorizados ou com permissão de uso. "
             "No Streamlit Cloud, o YouTube pode bloquear downloads automáticos. O upload manual continua sendo o caminho mais estável."
@@ -1049,7 +1247,7 @@ def app_screen():
                         st.caption(str(e))
                         return
 
-    with tab_resultado:
+    elif page == "Resultado":
         if not st.session_state.get("last_transcription"):
             st.info("Nenhuma transcrição concluída nesta sessão.")
         else:
@@ -1107,7 +1305,7 @@ def app_screen():
                     use_container_width=True,
                 )
 
-    with tab_prompts:
+    elif page == "Prompts":
         if not st.session_state.get("last_plain_text"):
             st.info("Conclua uma transcrição para gerar os prompts.")
         else:
@@ -1125,7 +1323,7 @@ def app_screen():
                     )
 
 
-    with tab_ferramentas:
+    elif page == "Ferramentas":
         st.subheader("Ferramentas de arquivo")
         st.write("Use estas ferramentas para preparar arquivos antes da transcrição ou para reduzir tamanho de envio.")
 
@@ -1273,7 +1471,7 @@ def app_screen():
                             st.warning(str(e))
 
 
-    with tab_youtube_local:
+    elif page == "YouTube local":
         st.subheader("Modo recomendado para YouTube")
         st.info(
             "Quando o YouTube bloquear o download no Streamlit Cloud, baixe o áudio no seu computador "
@@ -1301,7 +1499,7 @@ def app_screen():
             "No seu computador, o acesso costuma ser mais estável porque vem da sua própria rede."
         )
 
-    with tab_ajuda:
+    elif page == "Ajuda":
         st.subheader("Como usar bem no Streamlit Cloud")
         st.write(
             "1. Comece com arquivos curtos.\n\n"

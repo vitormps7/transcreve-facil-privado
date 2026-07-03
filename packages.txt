@@ -1,1 +1,507 @@
-ffmpeg
+# -*- coding: utf-8 -*-
+"""Transcreve Facil Privado v10.
+ASCII source file to avoid Streamlit/Python encoding problems.
+"""
+
+import os
+import io
+import zipfile
+import tempfile
+import subprocess
+import textwrap
+from pathlib import Path
+from datetime import datetime
+
+import streamlit as st
+
+APP_VERSION = "v10 - funcional estabilizada"
+APP_TITLE = "Transcreve Facil"
+ASSET_DIR = Path(__file__).parent / "assets"
+LOGO_FULL = ASSET_DIR / "logo_full.png"
+LOGO_ICON = ASSET_DIR / "logo_icon.png"
+
+st.set_page_config(page_title=APP_TITLE, page_icon=str(LOGO_ICON) if LOGO_ICON.exists() else None, layout="wide")
+
+CSS = """
+<style>
+:root { --tf-blue:#073b91; --tf-teal:#05b9c8; --tf-bg:#f5f9ff; --tf-orange:#ff7a1a; --tf-text:#13233f; }
+html, body, [data-testid="stAppViewContainer"] { background: linear-gradient(135deg, #f7fbff 0%, #eef6ff 100%); }
+[data-testid="stSidebar"] { background: #f8fbff; border-right: 1px solid #dbe9fb; }
+.block-container { padding-top: 1.1rem; padding-bottom: 2.5rem; max-width: 1380px; }
+.tf-card { background: rgba(255,255,255,.92); border:1px solid #dbe8fb; border-radius:24px; padding:28px; box-shadow:0 18px 45px rgba(31,81,143,.10); margin-bottom:18px; }
+.tf-hero { background: linear-gradient(135deg,#ffffff 0%,#eaf8ff 100%); border:1px solid #d3e6ff; border-radius:28px; padding:34px; box-shadow:0 18px 45px rgba(31,81,143,.12); }
+.tf-title { font-size:42px; line-height:1.05; font-weight:800; color:var(--tf-text); margin:0 0 12px 0; }
+.tf-sub { color:#667696; font-size:17px; }
+.tf-pill { display:inline-block; padding:9px 14px; margin:4px 8px 4px 0; border-radius:999px; font-weight:700; font-size:14px; border:1px solid #cfe2fb; }
+.tf-pill.teal { background:#e8fbfd; color:#007c88; }
+.tf-pill.blue { background:#eef5ff; color:#0b62e5; }
+.tf-pill.orange { background:#fff4e9; color:#c75500; border-color:#ffd9b7; }
+.tf-metric { min-height:170px; }
+.tf-iconbox { width:58px; height:58px; border-radius:18px; display:flex; align-items:center; justify-content:center; font-size:29px; color:white; font-weight:800; margin-bottom:18px; box-shadow:0 12px 28px rgba(0,0,0,.10); }
+.tf-bg-teal { background:linear-gradient(135deg,#05c9c8,#0798da); }
+.tf-bg-blue { background:linear-gradient(135deg,#1a73ff,#0f5bd7); }
+.tf-bg-orange { background:linear-gradient(135deg,#ff8a28,#ff6b00); }
+.tf-bg-purple { background:linear-gradient(135deg,#855cf5,#6b43db); }
+.tf-tool { min-height:190px; }
+.tf-topbar { background:#ffffff; border:1px solid #e1ebf7; border-radius:24px; padding:14px 18px; box-shadow:0 12px 30px rgba(31,81,143,.08); margin-bottom:18px; }
+.tf-user { text-align:right; color:#073b91; font-weight:700; }
+.tf-note { background:#ecfbff; border:1px solid #bdeff6; color:#006d78; padding:12px 14px; border-radius:16px; font-weight:600; }
+.tf-errornote { background:#fff2f2; border:1px solid #ffd0d0; color:#a31515; padding:12px 14px; border-radius:16px; }
+.tf-small { font-size:13px; color:#64748b; }
+.stButton > button { border-radius:16px !important; min-height:44px; font-weight:700 !important; border:1px solid #d9e6f6 !important; }
+.stDownloadButton > button { border-radius:16px !important; min-height:44px; font-weight:700 !important; }
+button[kind="primary"] { background:linear-gradient(135deg,#0b73ff,#05b9c8) !important; border:0 !important; color:white !important; }
+[data-testid="stFileUploaderDropzone"] { border:2px dashed #a9caf5; border-radius:24px; background:#fbfdff; }
+hr { border-color:#e5eefb; }
+</style>
+"""
+st.markdown(CSS, unsafe_allow_html=True)
+
+
+def init_state():
+    defaults = {
+        "logged_in": False,
+        "user_email": "",
+        "page": "Inicio",
+        "transcript": "",
+        "segments": [],
+        "last_file_name": "",
+        "last_error": "",
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
+def get_users():
+    # Configure in Streamlit Secrets:
+    # [users]
+    # "vmsoares@tre-ba.jus.br" = "your_password"
+    try:
+        users = dict(st.secrets.get("users", {}))
+    except Exception:
+        users = {}
+    if not users:
+        users = {"vmsoares@tre-ba.jus.br": "transcreve123"}
+    return users
+
+
+def do_login():
+    c1, c2, c3 = st.columns([1, 1.3, 1])
+    with c2:
+        st.markdown('<div class="tf-card" style="text-align:center; margin-top:30px;">', unsafe_allow_html=True)
+        if LOGO_FULL.exists():
+            st.image(str(LOGO_FULL), width=280)
+        else:
+            st.markdown('<h1 style="color:#073b91">Transcreve <span style="color:#05b9c8">Facil</span></h1>', unsafe_allow_html=True)
+        st.markdown(f"<p class='tf-sub'>Acesso privado - {APP_VERSION}</p>", unsafe_allow_html=True)
+        email = st.text_input("E-mail institucional", value="vmsoares@tre-ba.jus.br")
+        password = st.text_input("Senha", type="password")
+        if st.button("Entrar", type="primary", use_container_width=True):
+            users = get_users()
+            if email in users and password == users[email] and email.endswith("@tre-ba.jus.br"):
+                st.session_state.logged_in = True
+                st.session_state.user_email = email
+                st.session_state.page = "Inicio"
+                st.rerun()
+            else:
+                st.error("E-mail ou senha invalidos.")
+        st.caption("Senha inicial: transcreve123. Troque depois em Streamlit Secrets.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+def sidebar():
+    with st.sidebar:
+        if LOGO_FULL.exists():
+            st.image(str(LOGO_FULL), use_column_width=True)
+        else:
+            st.markdown("## Transcreve Facil")
+        st.markdown("### Navegacao")
+        pages = [
+            ("Inicio", "Home"),
+            ("Transcrever", "Transcrever"),
+            ("Resultado", "Resultado"),
+            ("Prompts", "Prompts"),
+            ("Ferramentas", "Ferramentas"),
+            ("YouTube Local", "YouTube Local"),
+            ("Ajuda", "Ajuda"),
+        ]
+        for label, page in pages:
+            selected = st.session_state.page == page
+            if st.button(("[ativo] " if selected else "") + label, key=f"nav_{page}", use_container_width=True):
+                st.session_state.page = page
+                st.rerun()
+        st.markdown("---")
+        st.markdown('<div class="tf-note">Transcreva, organize e economize tempo.</div>', unsafe_allow_html=True)
+        st.markdown("---")
+        st.markdown("### Configuracoes")
+        st.session_state.model_size = st.selectbox("Modelo", ["small", "medium", "large-v3"], index=0)
+        st.session_state.with_timestamps = st.checkbox("Incluir marcacao de tempo no texto", value=True)
+        st.session_state.precision_hint = st.selectbox("Prioridade", ["Rapidez", "Equilibrio", "Qualidade"], index=1)
+        if st.button("Sair", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.user_email = ""
+            st.rerun()
+
+
+def topbar():
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown('<div class="tf-topbar">Buscar transcricoes, arquivos ou ferramentas...</div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f'<div class="tf-topbar tf-user">{st.session_state.user_email}<br><span class="tf-small">Uso privado</span></div>', unsafe_allow_html=True)
+
+
+def hero():
+    st.markdown(
+        '<div class="tf-hero">'
+        '<div class="tf-title">Transcritor de Videos e Audios</div>'
+        '<div class="tf-sub">Envie arquivos, fragmente midias, compacte documentos e gere transcricoes em TXT, Word, PDF e SRT.</div><br>'
+        '<span class="tf-pill teal">Recomendado: upload manual</span>'
+        '<span class="tf-pill blue">YouTube: recurso experimental</span>'
+        '<span class="tf-pill orange">Modelo online sugerido: small</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def card(icon, title, text, color="teal"):
+    st.markdown(
+        f'<div class="tf-card tf-metric"><div class="tf-iconbox tf-bg-{color}">{icon}</div>'
+        f'<h3>{title}</h3><p class="tf-sub">{text}</p></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def page_inicio():
+    topbar()
+    hero()
+    c1, c2, c3 = st.columns(3)
+    with c1: card("DOC", "Arquivos processados", "Transcreva videos, audios e gere downloads editaveis em TXT, Word, PDF e SRT.", "teal")
+    with c2: card("CLK", "Tempo economizado", "Transforme aulas, reunioes e treinamentos em texto pesquisavel em poucos passos.", "blue")
+    with c3: card("BOX", "Ferramentas integradas", "Fragmentador, compactador, PDF, Word, TXT e legendas SRT no mesmo ambiente.", "orange")
+    st.markdown("## Ferramentas rapidas")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown('<div class="tf-card tf-tool"><div class="tf-iconbox tf-bg-teal">CUT</div><h4>Fragmentador</h4><p>Divida arquivos grandes em partes menores.</p></div>', unsafe_allow_html=True)
+        if st.button("Abrir fragmentador", use_container_width=True): st.session_state.page = "Ferramentas"; st.rerun()
+    with c2:
+        st.markdown('<div class="tf-card tf-tool"><div class="tf-iconbox tf-bg-purple">ZIP</div><h4>Compactador</h4><p>Reduza e agrupe arquivos em ZIP.</p></div>', unsafe_allow_html=True)
+        if st.button("Abrir compactador", use_container_width=True): st.session_state.page = "Ferramentas"; st.rerun()
+    with c3:
+        st.markdown('<div class="tf-card tf-tool"><div class="tf-iconbox tf-bg-orange">PDF</div><h4>Exportar PDF</h4><p>Baixe a transcricao em PDF.</p></div>', unsafe_allow_html=True)
+        if st.button("Ver resultado", use_container_width=True): st.session_state.page = "Resultado"; st.rerun()
+    with c4:
+        st.markdown('<div class="tf-card tf-tool"><div class="tf-iconbox tf-bg-blue">SRT</div><h4>Legenda SRT</h4><p>Crie legendas para seus videos.</p></div>', unsafe_allow_html=True)
+        if st.button("Baixar SRT", use_container_width=True): st.session_state.page = "Resultado"; st.rerun()
+
+
+def save_uploaded(uploaded, suffix=None):
+    suffix = suffix or Path(uploaded.name).suffix
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(uploaded.getbuffer())
+    tmp.close()
+    return tmp.name
+
+
+def run_cmd(cmd):
+    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=600)
+
+
+def extract_audio(path):
+    ext = Path(path).suffix.lower()
+    if ext in [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"]:
+        return path
+    out = str(Path(path).with_suffix(".wav"))
+    cmd = ["ffmpeg", "-y", "-i", path, "-vn", "-ac", "1", "-ar", "16000", out]
+    r = run_cmd(cmd)
+    if r.returncode != 0 or not Path(out).exists():
+        raise RuntimeError("Falha ao extrair audio. Verifique se o arquivo e valido.")
+    return out
+
+
+@st.cache_resource(show_spinner=False)
+def load_model(model_size):
+    from faster_whisper import WhisperModel
+    return WhisperModel(model_size, device="cpu", compute_type="int8")
+
+
+def fmt_time(seconds):
+    seconds = int(seconds)
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def transcribe_path(path, model_size, with_timestamps):
+    audio = extract_audio(path)
+    model = load_model(model_size)
+    segments_iter, info = model.transcribe(audio, language="pt", vad_filter=True)
+    segments = []
+    lines = []
+    for seg in segments_iter:
+        text = (seg.text or "").strip()
+        if not text:
+            continue
+        segments.append({"start": float(seg.start), "end": float(seg.end), "text": text})
+        if with_timestamps:
+            lines.append(f"[{fmt_time(seg.start)} - {fmt_time(seg.end)}] {text}")
+        else:
+            lines.append(text)
+    return "\n".join(lines), segments
+
+
+def make_txt(text):
+    return text.encode("utf-8")
+
+
+def make_docx(text):
+    from docx import Document
+    doc = Document()
+    doc.add_heading("Transcricao", level=1)
+    for line in text.splitlines():
+        doc.add_paragraph(line)
+    bio = io.BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio.getvalue()
+
+
+def make_pdf(text):
+    from fpdf import FPDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    safe = text.encode("latin-1", errors="replace").decode("latin-1")
+    for line in safe.splitlines():
+        pdf.multi_cell(0, 8, line)
+    return bytes(pdf.output(dest="S"))
+
+
+def make_srt(segments):
+    def srt_time(sec):
+        ms = int((sec - int(sec)) * 1000)
+        sec = int(sec)
+        h = sec // 3600
+        m = (sec % 3600) // 60
+        s = sec % 60
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+    out = []
+    for i, seg in enumerate(segments, 1):
+        out.append(str(i))
+        out.append(f"{srt_time(seg['start'])} --> {srt_time(seg['end'])}")
+        out.append(seg["text"])
+        out.append("")
+    return "\n".join(out).encode("utf-8")
+
+
+def page_transcrever():
+    topbar()
+    st.markdown("# Transcrever")
+    st.markdown('<div class="tf-note">Use upload manual como caminho principal. Para YouTube, prefira a pagina YouTube Local.</div>', unsafe_allow_html=True)
+    tab1, tab2 = st.tabs(["Enviar arquivo", "URL do YouTube (experimental)"])
+    with tab1:
+        uploaded = st.file_uploader("Escolha um video ou audio", type=["mp3","wav","m4a","ogg","flac","aac","mp4","mov","avi","mkv","webm","mpeg","mpg"])
+        if uploaded:
+            st.success(f"Arquivo carregado: {uploaded.name}")
+            if st.button("Transcrever agora", type="primary", use_container_width=True):
+                try:
+                    st.session_state.last_error = ""
+                    progress = st.progress(0)
+                    status = st.empty()
+                    status.info("Preparando arquivo...")
+                    path = save_uploaded(uploaded)
+                    progress.progress(25)
+                    status.info("Extraindo audio e carregando modelo...")
+                    text, segments = transcribe_path(path, st.session_state.get("model_size", "small"), st.session_state.get("with_timestamps", True))
+                    progress.progress(100)
+                    st.session_state.transcript = text
+                    st.session_state.segments = segments
+                    st.session_state.last_file_name = uploaded.name
+                    status.success("Transcricao concluida. Abra a pagina Resultado para baixar.")
+                except Exception as e:
+                    st.session_state.last_error = str(e)
+                    st.error(f"Erro na transcricao: {e}")
+    with tab2:
+        st.warning("Este recurso pode falhar no Streamlit Cloud por bloqueio do YouTube. Se falhar, use YouTube Local.")
+        url = st.text_input("URL do YouTube")
+        if st.button("Tentar baixar e transcrever URL", use_container_width=True):
+            st.error("No Streamlit Cloud este recurso e instavel. Use a pagina YouTube Local para baixar no seu computador e depois envie o arquivo.")
+            st.session_state.page = "YouTube Local"
+
+
+def page_resultado():
+    topbar()
+    st.markdown("# Resultado")
+    text = st.session_state.get("transcript", "")
+    if not text:
+        st.info("Nenhuma transcricao disponivel ainda. Use a pagina Transcrever.")
+        return
+    st.markdown(f"**Ultimo arquivo:** {st.session_state.get('last_file_name','')}")
+    st.text_area("Transcricao", text, height=420)
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.download_button("Baixar TXT", make_txt(text), "transcricao.txt", "text/plain", use_container_width=True)
+    with c2: st.download_button("Baixar Word", make_docx(text), "transcricao.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+    with c3: st.download_button("Baixar PDF", make_pdf(text), "transcricao.pdf", "application/pdf", use_container_width=True)
+    with c4: st.download_button("Baixar SRT", make_srt(st.session_state.get("segments", [])), "legenda.srt", "text/plain", use_container_width=True)
+    if st.button("Limpar resultado", use_container_width=True):
+        st.session_state.transcript = ""
+        st.session_state.segments = []
+        st.session_state.last_file_name = ""
+        st.rerun()
+
+
+def page_prompts():
+    topbar()
+    st.markdown("# Prompts")
+    text = st.session_state.get("transcript", "")
+    if not text:
+        st.info("Transcreva um arquivo primeiro para gerar prompts com a transcricao.")
+        return
+    options = {
+        "Tabela pratica": "Transforme a transcricao abaixo em uma tabela pratica, com colunas de tema, orientacao, fundamento citado, providencia e observacoes:",
+        "Resumo executivo": "Resuma a transcricao abaixo de forma objetiva, destacando os pontos principais e as conclusoes:",
+        "Ata de reuniao": "Transforme a transcricao abaixo em uma ata formal, com participantes, pauta, deliberacoes e providencias:",
+        "Checklist": "Transforme a transcricao abaixo em um checklist de providencias praticas:",
+        "Material de estudo": "Transforme a transcricao abaixo em material de estudo organizado, com topicos, quadro-resumo e pontos de atencao:",
+    }
+    choice = st.selectbox("Tipo de prompt", list(options.keys()))
+    prompt = options[choice] + "\n\n" + text
+    st.text_area("Prompt pronto para copiar", prompt, height=420)
+
+
+def split_file_by_size(path, mb):
+    chunk_size = int(mb * 1024 * 1024)
+    parts = []
+    with open(path, "rb") as f:
+        i = 1
+        while True:
+            data = f.read(chunk_size)
+            if not data:
+                break
+            part = f"{path}.part{i:03d}"
+            with open(part, "wb") as out:
+                out.write(data)
+            parts.append(part)
+            i += 1
+    return parts
+
+
+def zip_paths(paths):
+    bio = io.BytesIO()
+    with zipfile.ZipFile(bio, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in paths:
+            z.write(p, arcname=Path(p).name)
+    bio.seek(0)
+    return bio.getvalue()
+
+
+def page_ferramentas():
+    topbar()
+    st.markdown("# Ferramentas")
+    tab1, tab2, tab3, tab4 = st.tabs(["Fragmentar midia", "Fragmentar arquivo", "Compactar ZIP", "Compactar midia"])
+    with tab1:
+        up = st.file_uploader("Video/audio para fragmentar por duracao", key="frag_media")
+        minutes = st.number_input("Minutos por parte", min_value=1, max_value=120, value=10)
+        if up and st.button("Fragmentar midia", type="primary"):
+            try:
+                path = save_uploaded(up)
+                outdir = tempfile.mkdtemp()
+                pattern = str(Path(outdir) / "parte_%03d.mp4")
+                cmd = ["ffmpeg", "-y", "-i", path, "-c", "copy", "-map", "0", "-segment_time", str(int(minutes*60)), "-f", "segment", pattern]
+                r = run_cmd(cmd)
+                parts = sorted(str(p) for p in Path(outdir).glob("parte_*.mp4"))
+                if not parts:
+                    raise RuntimeError(r.stderr[-400:] or "Nao foi possivel fragmentar.")
+                st.download_button("Baixar partes em ZIP", zip_paths(parts), "partes_midia.zip", "application/zip")
+            except Exception as e:
+                st.error(f"Erro: {e}")
+    with tab2:
+        up = st.file_uploader("Qualquer arquivo para fragmentar por tamanho", key="frag_file")
+        mb = st.number_input("Tamanho de cada parte em MB", min_value=1, max_value=500, value=50)
+        if up and st.button("Fragmentar arquivo", type="primary"):
+            path = save_uploaded(up)
+            parts = split_file_by_size(path, mb)
+            st.download_button("Baixar partes em ZIP", zip_paths(parts), "partes_arquivo.zip", "application/zip")
+    with tab3:
+        ups = st.file_uploader("Arquivos para compactar em ZIP", accept_multiple_files=True, key="zip_files")
+        if ups and st.button("Criar ZIP", type="primary"):
+            paths = [save_uploaded(u) for u in ups]
+            st.download_button("Baixar ZIP", zip_paths(paths), "arquivos_compactados.zip", "application/zip")
+    with tab4:
+        up = st.file_uploader("Audio/video para reduzir tamanho", key="compress_media")
+        preset = st.selectbox("Nivel", ["leve", "medio", "forte"])
+        if up and st.button("Compactar midia", type="primary"):
+            try:
+                path = save_uploaded(up)
+                out = str(Path(path).with_name("compactado.mp4"))
+                crf = {"leve":"28", "medio":"32", "forte":"36"}[preset]
+                cmd = ["ffmpeg", "-y", "-i", path, "-vcodec", "libx264", "-crf", crf, "-preset", "veryfast", "-acodec", "aac", "-b:a", "96k", out]
+                r = run_cmd(cmd)
+                if r.returncode != 0 or not Path(out).exists():
+                    raise RuntimeError(r.stderr[-400:] or "Falha ao compactar.")
+                st.download_button("Baixar midia compactada", Path(out).read_bytes(), "midia_compactada.mp4", "video/mp4")
+            except Exception as e:
+                st.error(f"Erro: {e}")
+
+
+def page_youtube_local():
+    topbar()
+    st.markdown("# YouTube Local")
+    st.markdown('<div class="tf-note">Este e o metodo recomendado quando o YouTube bloqueia o Streamlit Cloud.</div>', unsafe_allow_html=True)
+    url = st.text_input("Cole a URL do YouTube")
+    if url:
+        cmd = f'yt-dlp -x --audio-format mp3 "{url}"'
+        st.code(cmd, language="bash")
+    st.markdown("""
+Passos simples:
+1. Baixe o arquivo auxiliar local que ja criamos ou use o comando acima.
+2. Gere o MP3 no seu computador.
+3. Volte ao Transcreve Facil e envie o MP3 em Transcrever.
+""")
+
+
+def page_ajuda():
+    topbar()
+    st.markdown("# Ajuda")
+    st.markdown(f"Versao: **{APP_VERSION}**")
+    st.markdown("""
+Fluxo recomendado:
+1. Transcrever -> envie o arquivo.
+2. Resultado -> baixe TXT, Word, PDF ou SRT.
+3. Prompts -> copie prompts para revisar e organizar o texto.
+4. Ferramentas -> fragmente ou compacte arquivos.
+
+Configuracao de usuarios no Streamlit Secrets:
+
+```toml
+[users]
+"vmsoares@tre-ba.jus.br" = "sua_senha"
+```
+""")
+
+
+def main_app():
+    sidebar()
+    page = st.session_state.get("page", "Inicio")
+    if page == "Inicio": page_inicio()
+    elif page == "Transcrever": page_transcrever()
+    elif page == "Resultado": page_resultado()
+    elif page == "Prompts": page_prompts()
+    elif page == "Ferramentas": page_ferramentas()
+    elif page == "YouTube Local": page_youtube_local()
+    elif page == "Ajuda": page_ajuda()
+    else: page_inicio()
+
+
+def main():
+    init_state()
+    if not st.session_state.logged_in:
+        do_login()
+    else:
+        main_app()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,30 +1,29 @@
-# Transcreve Fácil Privado v9
+# Transcreve Facil Privado v10
 
-Versão corrigida com interface premium e funções acessíveis por botões reais no menu lateral.
+Versao funcional estabilizada, com interface premium, menu por botoes, login com logo e codigo-fonte ASCII para evitar erros de codificacao no Streamlit Cloud.
 
-## Arquivos do repositório
+## Atualizacao
 
-- `app.py`
-- `requirements.txt`
-- `packages.txt`
-- `runtime.txt`
-- `README.md`
-- `assets/`
+Substitua no GitHub:
 
-## Acesso inicial
+- app.py
+- requirements.txt
+- packages.txt
+- runtime.txt
+- README.md
+- assets/
+- .gitignore
 
-- E-mail: `vmsoares@tre-ba.jus.br`
-- Senha: `transcreve123`
+Depois clique em Commit changes e reinicie o app no Streamlit Cloud.
 
-## Principais correções da v9
+## Login inicial
 
-- Logo na tela de login e no menu lateral.
-- Menu lateral por botões funcionais.
-- Página separada para Transcrever, Resultado, Prompts, Ferramentas, YouTube Local e Ajuda.
-- Cards da tela inicial não substituem as funções reais.
-- Sem imagens sobrepostas no dashboard.
-- Funções preservadas: transcrição, downloads TXT/Word/PDF/SRT, prompts, fragmentador e compactador.
+E-mail: vmsoares@tre-ba.jus.br  
+Senha: transcreve123
 
-## Streamlit Cloud
+Troque a senha em Streamlit Secrets:
 
-Após substituir os arquivos no GitHub, clique em **Manage app > Reboot app**.
+```toml
+[users]
+"vmsoares@tre-ba.jus.br" = "sua_senha"
+```

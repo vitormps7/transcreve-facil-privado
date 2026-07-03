@@ -1,30 +1,62 @@
-# Transcreve Fácil Privado v6
+# Transcreve Fácil Privado v7
 
-Versão privada para GitHub + Streamlit Cloud.
+Versão privada para GitHub + Streamlit Cloud, com nova identidade visual, logo, interface com cards, botões arredondados, ícones coloridos em estilo flat e ferramentas integradas.
 
-## Novidades da v6
+## Recursos principais
 
-- Aba **Ferramentas**.
-- Fragmentador de mídia por duração, útil para dividir vídeos/áudios longos em partes menores.
-- Fragmentador de qualquer arquivo por tamanho, gerando partes binárias em ZIP.
-- Compactador de arquivos em ZIP.
-- Compactador de áudio/vídeo por reencodação, gerando MP4 ou MP3 menor.
-- Mantém transcrição, exportação TXT/Word/PDF/SRT, login institucional e YouTube local.
+- Login institucional com e-mail `@tre-ba.jus.br`.
+- Interface visual premium com logo do Transcreve Fácil.
+- Upload de áudio e vídeo.
+- Transcrição com Faster-Whisper.
+- Exportação em TXT, Word, PDF e SRT.
+- URL do YouTube como recurso experimental.
+- Modo YouTube local recomendado.
+- Fragmentador de mídia por duração.
+- Fragmentador de qualquer arquivo por tamanho.
+- Compactador ZIP.
+- Compactador de áudio/vídeo por reencodação.
+- Prompts prontos para revisão, resumo, ata, tabela prática, checklist e material de estudo.
+
+## Arquivos do repositório
+
+A estrutura deve ficar assim na raiz do GitHub:
+
+```text
+app.py
+requirements.txt
+packages.txt
+README.md
+assets/
+  logo_full.png
+  logo_icon.png
+  ui_concept.png
+```
 
 ## Atualização no GitHub
 
-Substitua no repositório:
+1. Extraia o ZIP.
+2. Substitua no repositório os arquivos `app.py`, `requirements.txt`, `packages.txt` e `README.md`.
+3. Envie também a pasta `assets` completa.
+4. Faça `Commit changes`.
+5. No Streamlit Cloud, clique em `Manage app` > `Reboot app`.
 
-- `app.py`
-- `requirements.txt`
-- `packages.txt`
-- `README.md`
+## Acesso inicial
 
-Depois clique em **Commit changes** e reinicie o app no Streamlit Cloud, se necessário.
+```text
+E-mail: vmsoares@tre-ba.jus.br
+Senha: transcreve123
+```
 
-## Observações
+Depois, configure usuários no `Secrets` do Streamlit:
 
-- O Streamlit Cloud continua limitado pelo tamanho de upload e processamento.
-- Para arquivos muito grandes, use a versão local no computador.
-- A compactação de ZIP nem sempre reduz vídeos MP4, pois eles já são comprimidos.
-- Para reduzir vídeos, use a opção **Compactar áudio/vídeo**.
+```toml
+[users]
+"vmsoares@tre-ba.jus.br" = "SUA_SENHA_FORTE"
+
+[profiles]
+"vmsoares@tre-ba.jus.br" = "admin"
+```
+
+## Observação sobre ícones
+
+A interface usa ícones próprios/emoji e elementos visuais em estilo flat, evitando dependência externa de bibliotecas de ícones e problemas de licença. Caso deseje usar ícones oficiais do Flaticon, baixe-os com a licença adequada e substitua os arquivos na pasta `assets`.

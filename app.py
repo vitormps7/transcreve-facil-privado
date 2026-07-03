@@ -22,7 +22,7 @@ from yt_dlp.utils import DownloadError
 st.set_page_config(page_title="Transcreve Fácil", page_icon="🎙️", layout="wide")
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v17 - rollback estavel + cabecalho corrigido"
+APP_VERSION = "v18.1 - identidade visual estável"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
@@ -35,51 +35,207 @@ DEFAULT_PASSWORD = "transcreve123"
 def inject_css():
     st.markdown("""
     <style>
-    .stApp { background: linear-gradient(135deg, #f8fbff 0%, #eef7ff 100%); }
-    [data-testid="stHeader"] { background: rgba(255,255,255,0.92); height: 2.6rem; }
-    section[data-testid="stSidebar"] { background: #f7fbff; border-right: 1px solid #d8e8fb; }
-    div.stButton > button, div.stDownloadButton > button {
-        border-radius: 14px !important;
-        border: 1px solid #cfe4ff !important;
-        box-shadow: 0 8px 20px rgba(20, 82, 180, 0.08);
-        font-weight: 700;
+    :root {
+        --tf-navy: #0b2f6b;
+        --tf-blue: #1264f4;
+        --tf-cyan: #00b8c8;
+        --tf-teal: #12b8b8;
+        --tf-orange: #ff7a1a;
+        --tf-bg: #f4f9ff;
+        --tf-border: #d7e8ff;
+        --tf-text: #14213d;
+        --tf-muted: #667799;
     }
-    div.stButton > button:hover, div.stDownloadButton > button:hover {
-        border-color: #0891b2 !important;
-        color: #064e6b !important;
-        transform: translateY(-1px);
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(18, 184, 184, .13), transparent 34%),
+            radial-gradient(circle at top right, rgba(18, 100, 244, .12), transparent 32%),
+            linear-gradient(135deg, #f9fcff 0%, #eef7ff 100%);
+        color: var(--tf-text);
     }
-    .tf-card {
-        padding: 1.2rem;
-        border-radius: 22px;
-        background: rgba(255,255,255,0.92);
-        border: 1px solid #d7e9ff;
-        box-shadow: 0 18px 45px rgba(2, 55, 110, 0.08);
-        margin-bottom: 1rem;
+    [data-testid="stHeader"] {
+        background: rgba(255, 255, 255, .78) !important;
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid rgba(215, 232, 255, .85);
+    }
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #ffffff 0%, #f2f8ff 100%) !important;
+        border-right: 1px solid var(--tf-border);
+        box-shadow: 8px 0 28px rgba(11, 47, 107, .06);
+    }
+    section[data-testid="stSidebar"] > div {
+        padding-top: 1.25rem;
+    }
+    .block-container {
+        padding-top: 2.2rem !important;
+        max-width: 1320px;
+    }
+    h1, h2, h3, h4 {
+        color: #10264b;
+        letter-spacing: -.02em;
+    }
+    .tf-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        background: rgba(255,255,255,.86);
+        border: 1px solid var(--tf-border);
+        border-radius: 24px;
+        padding: .85rem 1rem;
+        margin-bottom: 1.1rem;
+        box-shadow: 0 16px 38px rgba(16, 38, 75, .07);
+    }
+    .tf-search {
+        flex: 1;
+        background: #fff;
+        border: 1px solid #dceafd;
+        border-radius: 16px;
+        padding: .75rem 1rem;
+        color: #7b8ca8;
+        font-weight: 600;
+    }
+    .tf-user {
+        display: flex;
+        align-items: center;
+        gap: .7rem;
+        white-space: nowrap;
+        font-weight: 800;
+        color: var(--tf-navy);
+    }
+    .tf-avatar {
+        height: 42px;
+        width: 42px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        background: linear-gradient(135deg, var(--tf-blue), var(--tf-cyan));
+        box-shadow: 0 12px 26px rgba(18, 100, 244, .22);
     }
     .tf-hero {
-        padding: 1.6rem 1.8rem;
-        border-radius: 26px;
-        background: linear-gradient(135deg, #ffffff 0%, #eef8ff 100%);
+        padding: 2rem 2.1rem;
+        border-radius: 28px;
+        background:
+            linear-gradient(135deg, rgba(255,255,255,.98) 0%, rgba(237,248,255,.98) 100%);
         border: 1px solid #cfe4ff;
-        box-shadow: 0 20px 50px rgba(2, 55, 110, 0.08);
-        margin-bottom: 1rem;
+        box-shadow: 0 24px 60px rgba(2, 55, 110, .09);
+        margin-bottom: 1.2rem;
+        position: relative;
+        overflow: hidden;
+    }
+    .tf-hero:after {
+        content: "";
+        position: absolute;
+        width: 180px;
+        height: 180px;
+        right: -70px;
+        top: -60px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(0,184,200,.18), transparent 68%);
+    }
+    .tf-hero h1 {
+        font-size: 2.35rem;
+        line-height: 1.1;
+        margin: 0 0 .65rem 0;
+        color: #10264b;
+    }
+    .tf-hero p {
+        color: var(--tf-muted);
+        font-size: 1.02rem;
+        margin-bottom: .65rem;
     }
     .tf-badge {
-        display: inline-block;
-        padding: .45rem .75rem;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        padding: .48rem .78rem;
         border-radius: 999px;
-        margin-right: .4rem;
-        margin-top: .35rem;
+        margin-right: .42rem;
+        margin-top: .38rem;
         background: #e6fffb;
         color: #036672;
         border: 1px solid #bdeff0;
-        font-weight: 700;
+        font-weight: 800;
         font-size: .9rem;
+    }
+    .tf-badge.blue { background: #eef5ff; color: #1155cc; border-color: #cfe0ff; }
+    .tf-badge.orange { background: #fff3e9; color: #b84e00; border-color: #ffd5b1; }
+    .tf-card {
+        padding: 1.25rem;
+        border-radius: 24px;
+        background: rgba(255,255,255,.94);
+        border: 1px solid var(--tf-border);
+        box-shadow: 0 18px 42px rgba(16, 38, 75, .07);
+        margin-bottom: 1rem;
+    }
+    .tf-card h3 { margin-top: 0; }
+    .tf-icon {
+        width: 54px;
+        height: 54px;
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        border-radius: 16px;
+        font-size: 1.6rem;
+        margin-bottom: .7rem;
+        box-shadow: 0 12px 24px rgba(16, 38, 75, .12);
+    }
+    .tf-icon.teal { background: linear-gradient(135deg, #15c7bd, #00a9d6); }
+    .tf-icon.blue { background: linear-gradient(135deg, #246bfe, #2fa7ff); }
+    .tf-icon.orange { background: linear-gradient(135deg, #ff7a1a, #ffbd4a); }
+    .tf-uploadbox {
+        border: 2px dashed #a9cdfc;
+        border-radius: 24px;
+        padding: 2rem;
+        text-align: center;
+        background: linear-gradient(180deg, rgba(255,255,255,.86), rgba(240,249,255,.7));
+        margin: 1rem 0;
+    }
+    div.stButton > button, div.stDownloadButton > button, div[data-testid="stFormSubmitButton"] button {
+        border-radius: 16px !important;
+        border: 1px solid #cfe4ff !important;
+        box-shadow: 0 10px 24px rgba(20, 82, 180, .10);
+        font-weight: 800 !important;
+        min-height: 2.8rem;
+        transition: all .16s ease-in-out;
+    }
+    div.stButton > button:hover, div.stDownloadButton > button:hover, div[data-testid="stFormSubmitButton"] button:hover {
+        border-color: #02aeca !important;
+        color: #064e6b !important;
+        transform: translateY(-1px);
+        box-shadow: 0 14px 30px rgba(20, 82, 180, .14);
+    }
+    button[kind="primary"] {
+        background: linear-gradient(135deg, var(--tf-blue), var(--tf-cyan)) !important;
+        border: 0 !important;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: .45rem;
+        background: rgba(255,255,255,.68);
+        padding: .35rem;
+        border-radius: 18px;
+        border: 1px solid var(--tf-border);
+        margin-bottom: .75rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 14px;
+        padding: .6rem .9rem;
+        font-weight: 800;
+    }
+    div[data-testid="stMetric"] {
+        background: rgba(255,255,255,.78);
+        border: 1px solid #dfebfb;
+        border-radius: 18px;
+        padding: .85rem;
+    }
+    .stAlert { border-radius: 16px; }
+    textarea, input, .stSelectbox div[data-baseweb="select"] > div {
+        border-radius: 14px !important;
     }
     </style>
     """, unsafe_allow_html=True)
-
 
 def show_logo(width=260):
     try:
@@ -88,7 +244,15 @@ def show_logo(width=260):
             return
     except Exception:
         pass
-    st.markdown("## Transcreve  \n### Facil")
+    st.markdown(
+        """
+        <div style="line-height:1.05; margin-bottom:.8rem;">
+            <div style="font-size:1.75rem; font-weight:900; color:#0b2f6b;">Transcreve</div>
+            <div style="font-size:1.75rem; font-weight:900; color:#00aebd;">Fácil</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"}
 VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".mpeg", ".mpg"}
@@ -150,20 +314,32 @@ def authenticate(email: str, password: str) -> tuple[bool, str]:
 
 def login_screen():
     inject_css()
-    left, right = st.columns([1.2, 1])
+    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
+    left, right = st.columns([1.1, 0.95])
     with left:
-        show_logo(320)
-        st.title("Transcreve Facil")
-        st.subheader("Transcrição privada de vídeos e áudios")
-        st.write("Uso pessoal/institucional, com acesso restrito e exportação em TXT, Word, PDF e SRT.")
-        st.info("Dica: no Streamlit Cloud, use preferencialmente o modelo small e arquivos curtos ou médios.")
+        st.markdown("<div class='tf-card'>", unsafe_allow_html=True)
+        show_logo(330)
+        st.markdown(
+            """
+            <h1 style="margin-top:.5rem;">Sua central privada de transcrição</h1>
+            <p style="font-size:1.05rem; color:#667799;">
+                Transcreva vídeos e áudios, gere arquivos editáveis, fragmente mídias,
+                compacte documentos e transforme conteúdo em material útil.
+            </p>
+            <span class="tf-badge">🔒 Uso privado</span>
+            <span class="tf-badge blue">📄 Word, PDF, TXT e SRT</span>
+            <span class="tf-badge orange">⚡ Modelo recomendado: small</span>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
     with right:
+        st.markdown("<div class='tf-card'>", unsafe_allow_html=True)
         with st.form("login_form"):
             st.markdown("### Acesso institucional")
             email = st.text_input("E-mail institucional", placeholder="vmsoares@tre-ba.jus.br")
             password = st.text_input("Senha", type="password")
             submitted = st.form_submit_button("Entrar", use_container_width=True)
-
         if submitted:
             ok, result = authenticate(email, password)
             if ok:
@@ -173,13 +349,11 @@ def login_screen():
                 st.rerun()
             else:
                 st.error(result)
-
         if not get_secret_dict("users"):
             with st.expander("Primeiro acesso"):
-                st.write("Usuário inicial de teste:")
                 st.code(f"E-mail: {DEFAULT_USER}\nSenha: {DEFAULT_PASSWORD}")
-                st.write("Depois, substitua por usuários configurados em Secrets.")
-
+                st.caption("Depois, substitua por usuários configurados em Secrets.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
 def logout_button():
     col1, col2 = st.columns([5, 1])
@@ -483,6 +657,11 @@ def download_audio_from_url(url: str, output_dir: str, cookies_path: str | None 
 
 @st.cache_resource(show_spinner=False)
 def load_model(model_size: str):
+    try:
+        from faster_whisper import WhisperModel
+    except Exception:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "faster-whisper"])
+        from faster_whisper import WhisperModel
     return WhisperModel(model_size, device="cpu", compute_type="int8")
 
 
@@ -620,10 +799,37 @@ def estimate_warning(file_mb: float, duration: float | None, model_size: str):
 # -------------------------
 def app_screen():
     inject_css()
-    logout_button()
-    st.markdown("""<div class="tf-hero"><h1>Transcritor de Videos e Audios</h1><p>Envie arquivos, fragmente midias, compacte documentos e gere transcricoes em TXT, Word, PDF e SRT.</p><span class="tf-badge">Upload manual recomendado</span><span class="tf-badge">YouTube experimental</span></div>""", unsafe_allow_html=True)
+    user_email = st.session_state.get("user_email", "")
+    st.markdown(
+        f"""
+        <div class="tf-topbar">
+            <div class="tf-search">🔎 Buscar transcrições, arquivos ou ferramentas...</div>
+            <div class="tf-user"><span>🔔</span><span class="tf-avatar">{(user_email[:1] or 'V').upper()}</span><span>{user_email}<br><small style="color:#00aebd;">Uso privado</small></span></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"""
+        <div class="tf-hero">
+            <h1>Transcritor de Vídeos e Áudios</h1>
+            <p>Envie arquivos, fragmente mídias, compacte documentos e gere transcrições em TXT, Word, PDF e SRT.</p>
+            <span class="tf-badge">✅ Recomendado: upload manual</span>
+            <span class="tf-badge blue">🧪 YouTube: recurso experimental</span>
+            <span class="tf-badge orange">⚡ Modelo online sugerido: small</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.caption(APP_VERSION)
-    st.write("Transcrição privada de vídeos e áudios com exportação em TXT, Word, PDF e legenda SRT.")
+
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        st.markdown("<div class='tf-card'><div class='tf-icon teal'>📄</div><h3>Arquivos processados</h3><p>Transcreva vídeos, áudios e gere downloads editáveis.</p></div>", unsafe_allow_html=True)
+    with m2:
+        st.markdown("<div class='tf-card'><div class='tf-icon blue'>⏱️</div><h3>Tempo economizado</h3><p>Transforme aulas, reuniões e treinamentos em texto pesquisável.</p></div>", unsafe_allow_html=True)
+    with m3:
+        st.markdown("<div class='tf-card'><div class='tf-icon orange'>🧰</div><h3>Ferramentas integradas</h3><p>Fragmentador, compactador, PDF, Word, TXT e legendas SRT.</p></div>", unsafe_allow_html=True)
 
     with st.sidebar:
         show_logo(220)
@@ -654,6 +860,7 @@ def app_screen():
             "Use URLs apenas para vídeos seus, autorizados ou com permissão de uso. "
             "No Streamlit Cloud, o YouTube pode bloquear downloads automáticos. O upload manual continua sendo o caminho mais estável."
         )
+        st.markdown("<div class='tf-uploadbox'><h3>☁️ Arraste, envie ou selecione seu arquivo</h3><p>Suporta MP3, MP4, WAV, M4A, MOV, AAC e outros formatos compatíveis.</p></div>", unsafe_allow_html=True)
         origem = st.radio(
             "Fonte do conteúdo",
             ["Enviar arquivo", "URL do YouTube"],
@@ -836,9 +1043,10 @@ def app_screen():
 
                         progress.progress(100, text="Transcrição concluída.")
                         status_box.success("Transcrição concluída. Abra a aba Resultado para baixar os arquivos.")
-                    except Exception:
+                    except Exception as e:
                         st.error("Erro durante a transcrição.")
                         st.info("Tente novamente com o modelo small, use um arquivo menor ou envie apenas o áudio em MP3/WAV.")
+                        st.caption(str(e))
                         return
 
     with tab_resultado:

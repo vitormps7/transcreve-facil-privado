@@ -27,7 +27,7 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v18.9 - transcrição com fallback"
+APP_VERSION = "v18.10 - instalacao em pasta temporaria"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
@@ -886,21 +886,45 @@ def download_audio_from_url(url: str, output_dir: str, cookies_path: str | None 
     raise RuntimeError(message) from last_error
 
 
+RUNTIME_PKG_DIR = Path(tempfile.gettempdir()) / "transcreve_facil_runtime_packages"
+
+
+def ensure_runtime_package_path():
+    """Permite instalar dependências em /tmp, sem escrever no venv do Streamlit Cloud."""
+    RUNTIME_PKG_DIR.mkdir(parents=True, exist_ok=True)
+    runtime_path = str(RUNTIME_PKG_DIR)
+    if runtime_path not in sys.path:
+        sys.path.insert(0, runtime_path)
+
+
 def install_python_package(package_spec: str):
-    """Instala pacote em tempo de execução com erro legível."""
+    """Instala pacote em pasta temporária, evitando PermissionError no Streamlit Cloud."""
+    ensure_runtime_package_path()
     result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--no-cache-dir", package_spec],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-cache-dir",
+            "--disable-pip-version-check",
+            "--target",
+            str(RUNTIME_PKG_DIR),
+            package_spec,
+        ],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         details = (result.stderr or result.stdout or "").strip()
         raise RuntimeError(details[-4000:] if details else f"Falha ao instalar {package_spec}.")
+    ensure_runtime_package_path()
     return True
 
 
 @st.cache_resource(show_spinner=False)
 def load_model(model_size: str):
+    ensure_runtime_package_path()
     try:
         from faster_whisper import WhisperModel
     except Exception:
@@ -921,6 +945,7 @@ def transcribe_with_google_fallback(audio_path: str, duration: float | None, inc
     Observação: este fallback usa o serviço gratuito do Google Web Speech via biblioteca
     SpeechRecognition. Portanto, use apenas se aceitar esse processamento externo.
     """
+    ensure_runtime_package_path()
     try:
         import speech_recognition as sr
     except Exception:
@@ -1022,7 +1047,7 @@ def transcribe_audio_engine(audio_path: str, duration: float | None, model_size:
 
     except Exception as fast_error:
         st.warning(
-            "O motor local faster-whisper não pôde ser instalado/carregado neste ambiente. "
+            "O motor local faster-whisper não pôde ser instalado/carregado no ambiente principal. "
             "Vou tentar um fallback online simples para concluir a transcrição."
         )
         with st.expander("Detalhes técnicos do motor local"):

@@ -1,5 +1,5 @@
-streamlit==1.41.1
-faster-whisper==1.1.1
-python-docx==1.1.2
-reportlab==4.2.5
-yt-dlp
+streamlit>=1.41.0
+faster-whisper>=1.1.0
+python-docx>=1.1.2
+reportlab>=4.2.5
+yt-dlp>=2025.1.15

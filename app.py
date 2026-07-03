@@ -6,4 +6,3 @@ venv/
 *.tmp
 *.log
 *.zip
-.DS_Store

@@ -6,8 +6,14 @@ import subprocess
 import zipfile
 import sys
 import base64
+import io
 from urllib.parse import urlparse
 from pathlib import Path
+
+try:
+    from PIL import Image
+except Exception:
+    Image = None
 from datetime import datetime
 
 import streamlit as st
@@ -21,21 +27,13 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v18.3 - identidade visual com botoes"
+APP_VERSION = "v18.4 - identidade visual com ícone corrigido"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
 ALLOWED_DOMAIN = "@tre-ba.jus.br"
 DEFAULT_USER = "vmsoares@tre-ba.jus.br"
 DEFAULT_PASSWORD = "transcreve123"
-
-# Usa o ícone oficial também como favicon/ícone da aba do navegador.
-st.set_page_config(
-    page_title="Transcreve Fácil",
-    page_icon=str(LOGO_ICON) if LOGO_ICON.exists() else "🎙️",
-    layout="wide",
-)
-
 
 
 def inject_css():
@@ -353,8 +351,58 @@ def asset_data_uri(path: Path) -> str:
     return ""
 
 
-def brand_inline_html(compact: bool = False) -> str:
+def crop_icon_from_full_logo_bytes() -> bytes:
+    """Extrai somente o ícone do logo completo para evitar usar assets errados no app."""
+    if Image is None or not LOGO_FULL.exists():
+        return b""
+    try:
+        with Image.open(LOGO_FULL) as img:
+            w, h = img.size
+            # Recorta apenas a área do ícone à esquerda do logo principal.
+            box = (max(0, int(w * 0.02)), max(0, int(h * 0.15)), max(1, int(w * 0.28)), max(1, int(h * 0.84)))
+            cropped = img.crop(box)
+            buf = io.BytesIO()
+            cropped.save(buf, format="PNG")
+            return buf.getvalue()
+    except Exception:
+        return b""
+
+
+def brand_icon_data_uri() -> str:
+    icon_bytes = crop_icon_from_full_logo_bytes()
+    if icon_bytes:
+        try:
+            return f"data:image/png;base64,{base64.b64encode(icon_bytes).decode('ascii')}"
+        except Exception:
+            pass
     icon_uri = asset_data_uri(LOGO_ICON)
+    if icon_uri:
+        return icon_uri
+    return asset_data_uri(LOGO_FULL)
+
+
+def page_icon_object():
+    if Image is not None:
+        try:
+            icon_bytes = crop_icon_from_full_logo_bytes()
+            if icon_bytes:
+                return Image.open(io.BytesIO(icon_bytes))
+            if LOGO_ICON.exists():
+                return Image.open(LOGO_ICON)
+        except Exception:
+            pass
+    return "🎙️"
+
+
+st.set_page_config(
+    page_title="Transcreve Fácil",
+    page_icon=page_icon_object(),
+    layout="wide",
+)
+
+
+def brand_inline_html(compact: bool = False) -> str:
+    icon_uri = brand_icon_data_uri()
     if icon_uri:
         if compact:
             return (
@@ -372,8 +420,9 @@ def brand_inline_html(compact: bool = False) -> str:
 
 def show_icon(width=120):
     try:
-        if LOGO_ICON.exists():
-            st.image(str(LOGO_ICON), width=width)
+        icon_uri = brand_icon_data_uri()
+        if icon_uri:
+            st.markdown(f"<img src='{icon_uri}' style='width:{width}px; height:auto; border-radius:20px; filter:drop-shadow(0 12px 24px rgba(18,100,244,.18));'>", unsafe_allow_html=True)
             return
     except Exception:
         pass
@@ -381,21 +430,8 @@ def show_icon(width=120):
 
 
 def show_logo(width=260):
-    try:
-        if LOGO_FULL.exists():
-            st.image(str(LOGO_FULL), width=width)
-            return
-    except Exception:
-        pass
-    st.markdown(
-        """
-        <div style="line-height:1.05; margin-bottom:.8rem;">
-            <div style="font-size:1.75rem; font-weight:900; color:#0b2f6b;">Transcreve</div>
-            <div style="font-size:1.75rem; font-weight:900; color:#00aebd;">Fácil</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # Mantemos apenas o ícone + texto no layout para evitar que imagens antigas apareçam na tela inicial.
+    st.markdown(brand_inline_html(), unsafe_allow_html=True)
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"}
 VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".mpeg", ".mpg"}
@@ -1002,7 +1038,7 @@ def app_screen():
     page = st.session_state.get("tf_page", "Inicio")
 
     if page == "Inicio":
-        hero_icon_uri = asset_data_uri(LOGO_ICON)
+        hero_icon_uri = brand_icon_data_uri()
         hero_icon_html = f'<img class="tf-hero-icon" src="{hero_icon_uri}" alt="Transcreve Fácil">' if hero_icon_uri else '<div class="tf-hero-icon" style="font-size:4rem; display:flex; align-items:center; justify-content:center;">🎙️</div>'
         st.markdown(
             f"""

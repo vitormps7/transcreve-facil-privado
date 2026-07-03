@@ -27,7 +27,7 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v18.6 - conversao privada assistida"
+APP_VERSION = "v18.7 - upload funcional corrigido"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
@@ -1331,7 +1331,13 @@ def app_screen():
             "Use URLs apenas para vídeos seus, autorizados ou com permissão de uso. "
             "No Streamlit Cloud, o YouTube pode bloquear downloads automáticos. O upload manual continua sendo o caminho mais estável."
         )
-        st.markdown("<div class='tf-uploadbox'><h3>☁️ Arraste, envie ou selecione seu arquivo</h3><p>Suporta MP3, MP4, WAV, M4A, MOV, AAC e outros formatos compatíveis.</p></div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='tf-card'><h3>Enviar arquivo para transcrição</h3>"
+            "<p>Use o botão de upload abaixo. O quadro anterior foi removido porque era apenas visual.</p>"
+            "<p><b>Formatos aceitos:</b> MP3, MP4, WAV, M4A, MOV, AAC e outros formatos compatíveis.</p></div>",
+            unsafe_allow_html=True,
+        )
+
         origem = st.radio(
             "Fonte do conteúdo",
             ["Enviar arquivo", "URL do YouTube"],
@@ -1344,10 +1350,15 @@ def app_screen():
         cookies_file = None
         if origem == "Enviar arquivo":
             uploaded = st.file_uploader(
-                "Escolha um arquivo",
+                "Clique aqui para selecionar ou arraste o arquivo para esta área",
                 type=[ext.replace(".", "") for ext in SUPPORTED_EXTS],
                 help="Formatos aceitos: áudio e vídeo. Para vídeos, o sistema extrai o áudio automaticamente.",
+                key="main_upload_real",
             )
+            if uploaded is None:
+                st.info("Nenhum arquivo selecionado ainda. Clique no campo acima ou arraste o arquivo para ele.")
+            else:
+                st.success(f"Arquivo selecionado: {uploaded.name}")
             ready_to_transcribe = uploaded is not None
         else:
             youtube_url = st.text_input(

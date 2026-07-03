@@ -27,7 +27,7 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v18.4 - identidade visual com ícone corrigido"
+APP_VERSION = "v18.5 - tela inicial limpa"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
@@ -307,6 +307,58 @@ def inject_css():
         .tf-topbar { flex-direction: column; align-items: stretch; }
     }
 
+
+    .tf-login-panel {
+        padding: 2rem 0 1rem 0;
+    }
+    .tf-login-title {
+        font-size: 2.7rem;
+        line-height: 1.12;
+        margin: 1.3rem 0 .85rem 0;
+        color: #10264b;
+        font-weight: 950;
+        letter-spacing: -.04em;
+    }
+    .tf-login-subtitle {
+        color: #667799;
+        font-size: 1.08rem;
+        line-height: 1.65;
+        max-width: 760px;
+    }
+    .tf-login-form-title {
+        font-size: 1.75rem;
+        color: #10264b;
+        font-weight: 950;
+        margin-bottom: 1rem;
+    }
+    .tf-clean-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        background: rgba(255,255,255,.78);
+        border: 1px solid var(--tf-border);
+        border-radius: 22px;
+        padding: .9rem 1rem;
+        margin: 0 0 1.1rem 0;
+        box-shadow: 0 16px 38px rgba(16, 38, 75, .06);
+    }
+    .tf-clean-header-title {
+        color: var(--tf-navy);
+        font-weight: 950;
+        letter-spacing: -.03em;
+        font-size: 1.15rem;
+    }
+    .tf-clean-header-user {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: .7rem;
+        color: var(--tf-navy);
+        font-weight: 800;
+        white-space: nowrap;
+    }
+
     .tf-side-callout {
         margin: .95rem 0 1rem 0;
         padding: 1rem;
@@ -493,32 +545,29 @@ def authenticate(email: str, password: str) -> tuple[bool, str]:
 
 def login_screen():
     inject_css()
-    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
-    left, right = st.columns([1.1, 0.95])
+    st.markdown("<div class='tf-login-panel'>", unsafe_allow_html=True)
+    left, right = st.columns([1.15, 0.85], gap="large")
+
     with left:
-        st.markdown("<div class='tf-card'>", unsafe_allow_html=True)
         st.markdown(brand_inline_html(), unsafe_allow_html=True)
         st.markdown(
             """
-            <h1 style="margin-top:.5rem;">Sua central privada de transcrição</h1>
-            <p style="font-size:1.05rem; color:#667799;">
+            <div class="tf-login-title">Sua central privada de transcrição</div>
+            <div class="tf-login-subtitle">
                 Transcreva vídeos e áudios, gere arquivos editáveis, fragmente mídias,
                 compacte documentos e transforme conteúdo em material útil.
-            </p>
-            <span class="tf-badge">🔒 Uso privado</span>
-            <span class="tf-badge blue">📄 Word, PDF, TXT e SRT</span>
-            <span class="tf-badge orange">⚡ Modelo recomendado: small</span>
+            </div>
             """,
             unsafe_allow_html=True,
         )
-        st.markdown("</div>", unsafe_allow_html=True)
+
     with right:
-        st.markdown("<div class='tf-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='tf-login-form-title'>Acesso institucional</div>", unsafe_allow_html=True)
         with st.form("login_form"):
-            st.markdown("### Acesso institucional")
             email = st.text_input("E-mail institucional", placeholder="vmsoares@tre-ba.jus.br")
             password = st.text_input("Senha", type="password")
             submitted = st.form_submit_button("Entrar", use_container_width=True)
+
         if submitted:
             ok, result = authenticate(email, password)
             if ok:
@@ -528,11 +577,14 @@ def login_screen():
                 st.rerun()
             else:
                 st.error(result)
+
         if not get_secret_dict("users"):
             with st.expander("Primeiro acesso"):
                 st.code(f"E-mail: {DEFAULT_USER}\nSenha: {DEFAULT_PASSWORD}")
                 st.caption("Depois, substitua por usuários configurados em Secrets.")
-        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
 
 def logout_button():
     col1, col2 = st.columns([5, 1])
@@ -1027,9 +1079,12 @@ def app_screen():
 
     st.markdown(
         f"""
-        <div class="tf-topbar">
-            <div class="tf-search">🔎 Buscar transcrições, arquivos ou ferramentas...</div>
-            <div class="tf-user"><span>🔔</span><span class="tf-avatar">{(user_email[:1] or 'V').upper()}</span><span>{user_email}<br><small style="color:#00aebd;">Uso privado</small></span></div>
+        <div class="tf-clean-header">
+            <div class="tf-clean-header-title">Transcreve Fácil</div>
+            <div class="tf-clean-header-user">
+                <span class="tf-avatar">{(user_email[:1] or 'V').upper()}</span>
+                <span>{user_email}</span>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1047,9 +1102,6 @@ def app_screen():
                     <div>
                         <h1>Transcritor de Vídeos e Áudios</h1>
                         <p>Envie arquivos, fragmente mídias, compacte documentos e gere transcrições em TXT, Word, PDF e SRT.</p>
-                        <span class="tf-badge">✅ Recomendado: upload manual</span>
-                        <span class="tf-badge blue">🧪 YouTube: recurso experimental</span>
-                        <span class="tf-badge orange">⚡ Modelo online sugerido: small</span>
                     </div>
                     {hero_icon_html}
                 </div>

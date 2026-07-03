@@ -1,10 +1,8 @@
-# Transcreve Facil Privado v10
+# Transcreve Facil Privado v11
 
-Versao funcional estabilizada, com interface premium, menu por botoes, login com logo e codigo-fonte ASCII para evitar erros de codificacao no Streamlit Cloud.
+Versao estabilizada com interface premium, menu por botoes e funcoes principais separadas por pagina.
 
-## Atualizacao
-
-Substitua no GitHub:
+Arquivos a enviar ao GitHub:
 
 - app.py
 - requirements.txt
@@ -12,18 +10,10 @@ Substitua no GitHub:
 - runtime.txt
 - README.md
 - assets/
-- .gitignore
 
-Depois clique em Commit changes e reinicie o app no Streamlit Cloud.
+Acesso inicial:
 
-## Login inicial
+- E-mail: vmsoares@tre-ba.jus.br
+- Senha: transcreve123
 
-E-mail: vmsoares@tre-ba.jus.br  
-Senha: transcreve123
-
-Troque a senha em Streamlit Secrets:
-
-```toml
-[users]
-"vmsoares@tre-ba.jus.br" = "sua_senha"
-```
+No Streamlit Cloud, apos atualizar, use **Manage app > Reboot app** e, se preciso, **Clear cache**.

@@ -1,34 +1,36 @@
-# Transcreve Fácil Privado v3
+# Transcreve Fácil Privado v5
 
-Sistema privado para transcrição de vídeos, áudios e URLs do YouTube, com login institucional e exportação em TXT, Word, PDF e SRT.
+Versão privada para GitHub + Streamlit Cloud.
 
 ## Recursos
 
-- Login com e-mail `@tre-ba.jus.br`.
-- Upload de arquivos de áudio e vídeo.
-- Campo para URL do YouTube, baixando somente o áudio para transcrição.
-- Transcrição em português com Faster-Whisper.
-- Barra de progresso por etapa.
+- Login institucional com domínio `@tre-ba.jus.br`.
+- Upload de áudio e vídeo.
+- Extração de áudio com FFmpeg.
+- Transcrição com Faster-Whisper.
 - Exportação em TXT, Word, PDF e SRT.
-- Prompts prontos para revisão, resumo, ata, tabela prática, checklist e material de estudo.
+- Prompts para revisão, resumo, ata, tabela, checklist e material de estudo.
+- URL do YouTube mantida como recurso experimental.
+- Tratamento de erro limpo, sem traceback técnico para o usuário.
+- Nova aba **YouTube local**, com comandos prontos para baixar o áudio no computador quando o YouTube bloquear o Streamlit Cloud.
 
-## Atenção sobre URLs do YouTube
+## Arquivos para subir no GitHub
 
-Use essa função apenas para vídeos seus, autorizados ou com permissão de uso. Vídeos privados, protegidos, removidos, indisponíveis ou bloqueados podem falhar. O sistema baixa apenas o áudio temporariamente para fins de transcrição privada.
-
-## Arquivos do repositório
+Substitua no repositório:
 
 - `app.py`
 - `requirements.txt`
 - `packages.txt`
 - `README.md`
 
-## Usuário inicial
+Depois faça commit e reinicie o app no Streamlit Cloud.
+
+## Login inicial
 
 E-mail: `vmsoares@tre-ba.jus.br`  
 Senha: `transcreve123`
 
-Troque a senha no Streamlit Cloud em **Settings > Secrets**:
+Recomenda-se trocar via Secrets:
 
 ```toml
 [users]
@@ -38,6 +40,15 @@ Troque a senha no Streamlit Cloud em **Settings > Secrets**:
 "vmsoares@tre-ba.jus.br" = "admin"
 ```
 
-## Observação
+## Uso recomendado
 
-No Streamlit Cloud, use preferencialmente o modelo `small`. Para arquivos longos, a versão local no computador tende a ser mais estável.
+No Streamlit Cloud, use preferencialmente:
+
+- modelo `small`;
+- arquivos pequenos ou médios;
+- upload manual do arquivo;
+- aba **YouTube local** para vídeos do YouTube que sejam seus, autorizados ou com permissão de uso.
+
+## Observação sobre YouTube
+
+O download direto por URL pode falhar em servidores de nuvem com erros como 403, login obrigatório ou confirmação anti-bot. Isso depende do YouTube no momento do acesso. O modo mais estável é baixar o áudio localmente com `yt-dlp` e depois enviar o MP3 pelo upload.

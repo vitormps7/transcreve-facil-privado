@@ -15,10 +15,12 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.units import cm
 import yt_dlp
+from yt_dlp.utils import DownloadError
 
 st.set_page_config(page_title="Transcreve Fácil", page_icon="🎙️", layout="wide")
 
 APP_NAME = "Transcreve Fácil"
+APP_VERSION = "v5 - YouTube local e erro limpo"
 ALLOWED_DOMAIN = "@tre-ba.jus.br"
 DEFAULT_USER = "vmsoares@tre-ba.jus.br"
 DEFAULT_PASSWORD = "transcreve123"
@@ -182,19 +184,68 @@ def is_supported_url(url: str) -> bool:
         return False
 
 
-def download_audio_from_url(url: str, output_dir: str) -> tuple[str, dict]:
-    """Baixa apenas o áudio de uma URL compatível e converte para WAV mono 16kHz."""
-    url = (url or "").strip()
-    if not is_supported_url(url):
-        raise ValueError("URL não suportada. Use uma URL do YouTube, como youtube.com ou youtu.be.")
+def friendly_youtube_error_message(error: Exception) -> str:
+    """Converte erros técnicos do yt-dlp em orientação prática para o usuário."""
+    msg = str(error)
+    msg_lower = msg.lower()
 
-    base = os.path.join(output_dir, "audio_youtube")
-    ydl_opts = {
-        "format": "bestaudio/best",
+    if "sign in to confirm" in msg_lower or "not a bot" in msg_lower or "cookies" in msg_lower:
+        return (
+            "O YouTube bloqueou o download automático neste servidor e pediu confirmação de que não é robô. "
+            "Tente novamente usando o modo compatível. Se persistir, baixe o arquivo no seu computador e envie pelo upload. "
+            "Como alternativa avançada, é possível anexar um arquivo cookies.txt exportado do navegador, mas use apenas em app privado."
+        )
+    if "private video" in msg_lower or "this video is private" in msg_lower:
+        return "O vídeo parece ser privado. Use um vídeo público/autorizado ou envie o arquivo manualmente."
+    if "video unavailable" in msg_lower or "unavailable" in msg_lower:
+        return "O vídeo está indisponível para download automático. Confira o link ou envie o arquivo manualmente."
+    if "copyright" in msg_lower:
+        return "O vídeo possui restrição de direitos autorais ou disponibilidade. Use apenas conteúdo autorizado e, se necessário, envie o arquivo manualmente."
+    if "unsupported url" in msg_lower:
+        return "URL não suportada. Use links do YouTube nos formatos youtube.com/watch?v=... ou youtu.be/..."
+    return (
+        "Não foi possível baixar o áudio automaticamente. O YouTube pode ter bloqueado o servidor ou o vídeo pode ter restrições. "
+        "Tente novamente ou envie o arquivo pelo upload."
+    )
+
+
+def write_uploaded_cookies(cookies_file, output_dir: str) -> str | None:
+    """Salva um cookies.txt temporário, quando o usuário optar pelo modo avançado."""
+    if cookies_file is None:
+        return None
+    cookies_path = os.path.join(output_dir, "cookies.txt")
+    data = cookies_file.getvalue()
+    if not data:
+        return None
+    with open(cookies_path, "wb") as f:
+        f.write(data)
+    return cookies_path
+
+
+def youtube_base_options(base: str, strategy: str, cookies_path: str | None = None) -> dict:
+    """Opções do yt-dlp com estratégias progressivas de compatibilidade."""
+    common = {
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
         "outtmpl": base + ".%(ext)s",
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+        "socket_timeout": 30,
+        "retries": 3,
+        "fragment_retries": 3,
+        "extractor_retries": 3,
+        "forceipv4": True,
+        "geo_bypass": True,
+        "nocheckcertificate": True,
+        "cachedir": False,
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        },
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -203,26 +254,73 @@ def download_audio_from_url(url: str, output_dir: str) -> tuple[str, dict]:
         ],
         "postprocessor_args": ["-ar", "16000", "-ac", "1"],
     }
+    if cookies_path:
+        common["cookiefile"] = cookies_path
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+    # Estratégias conhecidas que às vezes reduzem bloqueios do YouTube em nuvem.
+    if strategy == "web":
+        common["extractor_args"] = {"youtube": {"player_client": ["web"]}}
+    elif strategy == "android":
+        common["extractor_args"] = {"youtube": {"player_client": ["android"]}}
+    elif strategy == "ios":
+        common["extractor_args"] = {"youtube": {"player_client": ["ios"]}}
+    elif strategy == "tv":
+        common["extractor_args"] = {"youtube": {"player_client": ["tv"]}}
+    elif strategy == "default":
+        pass
 
-    wav_path = base + ".wav"
-    if not os.path.exists(wav_path):
-        # Fallback: procura qualquer WAV gerado pelo yt-dlp.
-        matches = list(Path(output_dir).glob("audio_youtube*.wav"))
-        if matches:
-            wav_path = str(matches[0])
-        else:
-            raise RuntimeError("O áudio foi baixado, mas o arquivo WAV convertido não foi encontrado.")
+    return common
 
-    metadata = {
-        "title": info.get("title") or "video_youtube",
-        "duration": info.get("duration"),
-        "webpage_url": info.get("webpage_url") or url,
-        "uploader": info.get("uploader") or "",
-    }
-    return wav_path, metadata
+
+def download_audio_from_url(url: str, output_dir: str, cookies_path: str | None = None, mode: str = "auto") -> tuple[str, dict]:
+    """Baixa apenas o áudio de uma URL compatível e converte para WAV mono 16kHz.
+
+    No Streamlit Cloud, o YouTube pode bloquear datacenters. Por isso a função tenta
+    estratégias diferentes antes de desistir e retorna uma mensagem amigável.
+    """
+    url = (url or "").strip()
+    if not is_supported_url(url):
+        raise ValueError("URL não suportada. Use uma URL do YouTube, como youtube.com ou youtu.be.")
+
+    # Ordem conservadora. Se houver cookies, tenta primeiro com modo padrão + cookies.
+    if mode == "rapido":
+        strategies = ["default", "web"]
+    elif mode == "compatibilidade":
+        strategies = ["web", "android", "ios", "tv", "default"]
+    else:
+        strategies = ["default", "web", "android", "ios", "tv"]
+
+    last_error = None
+    for idx, strategy in enumerate(strategies, start=1):
+        base = os.path.join(output_dir, f"audio_youtube_{idx}_{strategy}")
+        ydl_opts = youtube_base_options(base, strategy, cookies_path=cookies_path)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+
+            wav_path = base + ".wav"
+            if not os.path.exists(wav_path):
+                matches = list(Path(output_dir).glob(f"audio_youtube_{idx}_{strategy}*.wav"))
+                if matches:
+                    wav_path = str(matches[0])
+                else:
+                    raise RuntimeError("O áudio foi baixado, mas o arquivo WAV convertido não foi encontrado.")
+
+            metadata = {
+                "title": info.get("title") or "video_youtube",
+                "duration": info.get("duration"),
+                "webpage_url": info.get("webpage_url") or url,
+                "uploader": info.get("uploader") or "",
+                "download_strategy": strategy,
+                "used_cookies": bool(cookies_path),
+            }
+            return wav_path, metadata
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    message = friendly_youtube_error_message(last_error or RuntimeError("Falha desconhecida."))
+    raise RuntimeError(message) from last_error
 
 
 @st.cache_resource(show_spinner=False)
@@ -365,6 +463,7 @@ def estimate_warning(file_mb: float, duration: float | None, model_size: str):
 def app_screen():
     logout_button()
     st.title("🎙️ Transcreve Fácil")
+    st.caption(APP_VERSION)
     st.write("Transcrição privada de vídeos e áudios com exportação em TXT, Word, PDF e legenda SRT.")
 
     with st.sidebar:
@@ -385,14 +484,14 @@ def app_screen():
                 st.session_state.pop(key, None)
             st.success("Resultado limpo.")
 
-    tab_transcrever, tab_resultado, tab_prompts, tab_ajuda = st.tabs(
-        ["1. Transcrever", "2. Resultado", "3. Prompts", "Ajuda"]
+    tab_transcrever, tab_resultado, tab_prompts, tab_youtube_local, tab_ajuda = st.tabs(
+        ["1. Transcrever", "2. Resultado", "3. Prompts", "YouTube local", "Ajuda"]
     )
 
     with tab_transcrever:
         st.warning(
             "Use URLs apenas para vídeos seus, autorizados ou com permissão de uso. "
-            "O recurso baixa somente o áudio para fins de transcrição privada."
+            "No Streamlit Cloud, o YouTube pode bloquear downloads automáticos. O upload manual continua sendo o caminho mais estável."
         )
         origem = st.radio(
             "Fonte do conteúdo",
@@ -402,6 +501,8 @@ def app_screen():
 
         uploaded = None
         youtube_url = ""
+        yt_mode = "auto"
+        cookies_file = None
         if origem == "Enviar arquivo":
             uploaded = st.file_uploader(
                 "Escolha um arquivo",
@@ -414,7 +515,23 @@ def app_screen():
                 "Cole a URL do YouTube",
                 placeholder="https://www.youtube.com/watch?v=... ou https://youtu.be/...",
             )
-            st.caption("O sistema tentará baixar somente o áudio. Vídeos privados, protegidos ou indisponíveis podem falhar.")
+            yt_mode = st.selectbox(
+                "Modo de download",
+                ["auto", "compatibilidade", "rapido"],
+                index=0,
+                help="Use compatibilidade quando o YouTube bloquear o modo automático. Pode demorar mais."
+            )
+            with st.expander("Opção avançada: cookies.txt do navegador"):
+                st.write(
+                    "Use somente se o YouTube bloquear o download e apenas em app privado. "
+                    "O arquivo é usado temporariamente durante a transcrição e não é salvo no repositório."
+                )
+                cookies_file = st.file_uploader(
+                    "Anexar cookies.txt (opcional)",
+                    type=["txt"],
+                    help="Exportado do navegador por extensão própria. Não compartilhe esse arquivo com terceiros."
+                )
+            st.caption("Recurso experimental no Streamlit Cloud. Se aparecer bloqueio 403, not-a-bot ou login obrigatório, use a aba YouTube local.")
             ready_to_transcribe = bool(youtube_url.strip())
 
         if not ready_to_transcribe:
@@ -474,14 +591,15 @@ def app_screen():
                                 extract_audio(input_path, audio_path)
                             else:
                                 progress.progress(25, text="Arquivo de áudio identificado.")
-                        except Exception as e:
-                            st.error("Não foi possível extrair o áudio. Confira se o FFmpeg foi instalado pelo packages.txt no Streamlit Cloud.")
-                            st.exception(e)
+                        except Exception:
+                            st.error("Não foi possível extrair o áudio do arquivo enviado.")
+                            st.info("Confira se o arquivo não está corrompido. No Streamlit Cloud, o FFmpeg deve estar listado no packages.txt.")
                             return
                     else:
                         try:
-                            progress.progress(15, text="Baixando áudio da URL...")
-                            audio_path, yt_meta = download_audio_from_url(youtube_url, tmpdir)
+                            progress.progress(15, text="Baixando áudio da URL. Se o YouTube bloquear, o sistema tentará modos alternativos...")
+                            cookies_path = write_uploaded_cookies(cookies_file, tmpdir)
+                            audio_path, yt_meta = download_audio_from_url(youtube_url, tmpdir, cookies_path=cookies_path, mode=yt_mode)
                             source_title = yt_meta.get("title") or "video_youtube"
                             duration = yt_meta.get("duration") or get_duration_seconds(audio_path)
                             if duration:
@@ -489,8 +607,12 @@ def app_screen():
                             estimate_warning(file_mb, duration, model_size)
                             progress.progress(30, text="Áudio baixado e convertido.")
                         except Exception as e:
-                            st.error("Não foi possível baixar o áudio da URL. Confira se o vídeo é público, autorizado e está disponível.")
-                            st.exception(e)
+                            st.error("Não foi possível baixar o áudio diretamente pelo Streamlit Cloud.")
+                            st.warning(str(e))
+                            st.info(
+                                "Caminho mais estável: abra a aba YouTube local, gere o comando para baixar o áudio no seu computador "
+                                "e depois envie o MP3 pela opção Enviar arquivo."
+                            )
                             return
 
                     try:
@@ -553,9 +675,9 @@ def app_screen():
 
                         progress.progress(100, text="Transcrição concluída.")
                         status_box.success("Transcrição concluída. Abra a aba Resultado para baixar os arquivos.")
-                    except Exception as e:
+                    except Exception:
                         st.error("Erro durante a transcrição.")
-                        st.exception(e)
+                        st.info("Tente novamente com o modelo small, use um arquivo menor ou envie apenas o áudio em MP3/WAV.")
                         return
 
     with tab_resultado:
@@ -632,6 +754,35 @@ def app_screen():
                         file_name=f"prompt_{safe_filename(title)}.txt",
                         mime="text/plain",
                     )
+
+
+    with tab_youtube_local:
+        st.subheader("Modo recomendado para YouTube")
+        st.info(
+            "Quando o YouTube bloquear o download no Streamlit Cloud, baixe o áudio no seu computador "
+            "e depois envie o arquivo pela aba Transcrever > Enviar arquivo. Esse fluxo é mais estável."
+        )
+
+        st.markdown("### Passo a passo no Windows")
+        st.write("1. Instale o yt-dlp no seu computador, uma única vez:")
+        st.code("python -m pip install -U yt-dlp", language="bash")
+        st.write("2. Instale o FFmpeg, se ainda não tiver:")
+        st.code("winget install Gyan.FFmpeg", language="bash")
+        st.write("3. Baixe apenas o áudio do vídeo autorizado:")
+        st.code('yt-dlp -x --audio-format mp3 --audio-quality 0 "COLE_A_URL_DO_YOUTUBE_AQUI"', language="bash")
+        st.write("4. Depois envie o MP3 gerado pela opção Enviar arquivo.")
+
+        st.markdown("### Gerador de comando")
+        local_url = st.text_input("URL para gerar comando local", placeholder="https://www.youtube.com/watch?v=...")
+        if local_url:
+            st.code(f'yt-dlp -x --audio-format mp3 --audio-quality 0 "{local_url.strip()}"', language="bash")
+            st.caption("Cole esse comando no Prompt/Terminal do seu computador, não no Streamlit Cloud.")
+
+        st.markdown("### Por que esse modo é melhor?")
+        st.write(
+            "O Streamlit Cloud roda em servidor de nuvem. O YouTube pode bloquear esse tipo de acesso com 403 ou pedido de login. "
+            "No seu computador, o acesso costuma ser mais estável porque vem da sua própria rede."
+        )
 
     with tab_ajuda:
         st.subheader("Como usar bem no Streamlit Cloud")

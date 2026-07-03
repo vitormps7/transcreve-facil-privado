@@ -1,15 +1,34 @@
-# Transcreve Fácil - acesso institucional
+# Transcreve Fácil Privado v3
 
-Sistema privado em Streamlit para transcrição de vídeos e áudios.
+Sistema privado para transcrição de vídeos, áudios e URLs do YouTube, com login institucional e exportação em TXT, Word, PDF e SRT.
 
-## Acesso inicial
+## Recursos
 
-E-mail: `vmsoares@tre-ba.jus.br`
+- Login com e-mail `@tre-ba.jus.br`.
+- Upload de arquivos de áudio e vídeo.
+- Campo para URL do YouTube, baixando somente o áudio para transcrição.
+- Transcrição em português com Faster-Whisper.
+- Barra de progresso por etapa.
+- Exportação em TXT, Word, PDF e SRT.
+- Prompts prontos para revisão, resumo, ata, tabela prática, checklist e material de estudo.
+
+## Atenção sobre URLs do YouTube
+
+Use essa função apenas para vídeos seus, autorizados ou com permissão de uso. Vídeos privados, protegidos, removidos, indisponíveis ou bloqueados podem falhar. O sistema baixa apenas o áudio temporariamente para fins de transcrição privada.
+
+## Arquivos do repositório
+
+- `app.py`
+- `requirements.txt`
+- `packages.txt`
+- `README.md`
+
+## Usuário inicial
+
+E-mail: `vmsoares@tre-ba.jus.br`  
 Senha: `transcreve123`
 
-## Secrets recomendados no Streamlit Cloud
-
-Em **Manage app > Settings > Secrets**, use:
+Troque a senha no Streamlit Cloud em **Settings > Secrets**:
 
 ```toml
 [users]
@@ -19,20 +38,6 @@ Em **Manage app > Settings > Secrets**, use:
 "vmsoares@tre-ba.jus.br" = "admin"
 ```
 
-Para adicionar outro usuário:
+## Observação
 
-```toml
-[users]
-"outro.usuario@tre-ba.jus.br" = "senha_do_usuario"
-
-[profiles]
-"outro.usuario@tre-ba.jus.br" = "usuario"
-```
-
-O sistema só aceita e-mails `@tre-ba.jus.br`.
-
-## Arquivos importantes
-
-- `app.py`: sistema principal
-- `requirements.txt`: bibliotecas Python
-- `packages.txt`: instala FFmpeg no Streamlit Cloud
+No Streamlit Cloud, use preferencialmente o modelo `small`. Para arquivos longos, a versão local no computador tende a ser mais estável.

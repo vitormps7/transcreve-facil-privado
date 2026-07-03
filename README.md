@@ -1,20 +1,17 @@
-# Transcreve Fácil Privado v5
+# Transcreve Fácil Privado v6
 
 Versão privada para GitHub + Streamlit Cloud.
 
-## Recursos
+## Novidades da v6
 
-- Login institucional com domínio `@tre-ba.jus.br`.
-- Upload de áudio e vídeo.
-- Extração de áudio com FFmpeg.
-- Transcrição com Faster-Whisper.
-- Exportação em TXT, Word, PDF e SRT.
-- Prompts para revisão, resumo, ata, tabela, checklist e material de estudo.
-- URL do YouTube mantida como recurso experimental.
-- Tratamento de erro limpo, sem traceback técnico para o usuário.
-- Nova aba **YouTube local**, com comandos prontos para baixar o áudio no computador quando o YouTube bloquear o Streamlit Cloud.
+- Aba **Ferramentas**.
+- Fragmentador de mídia por duração, útil para dividir vídeos/áudios longos em partes menores.
+- Fragmentador de qualquer arquivo por tamanho, gerando partes binárias em ZIP.
+- Compactador de arquivos em ZIP.
+- Compactador de áudio/vídeo por reencodação, gerando MP4 ou MP3 menor.
+- Mantém transcrição, exportação TXT/Word/PDF/SRT, login institucional e YouTube local.
 
-## Arquivos para subir no GitHub
+## Atualização no GitHub
 
 Substitua no repositório:
 
@@ -23,32 +20,11 @@ Substitua no repositório:
 - `packages.txt`
 - `README.md`
 
-Depois faça commit e reinicie o app no Streamlit Cloud.
+Depois clique em **Commit changes** e reinicie o app no Streamlit Cloud, se necessário.
 
-## Login inicial
+## Observações
 
-E-mail: `vmsoares@tre-ba.jus.br`  
-Senha: `transcreve123`
-
-Recomenda-se trocar via Secrets:
-
-```toml
-[users]
-"vmsoares@tre-ba.jus.br" = "SUA_SENHA_FORTE"
-
-[profiles]
-"vmsoares@tre-ba.jus.br" = "admin"
-```
-
-## Uso recomendado
-
-No Streamlit Cloud, use preferencialmente:
-
-- modelo `small`;
-- arquivos pequenos ou médios;
-- upload manual do arquivo;
-- aba **YouTube local** para vídeos do YouTube que sejam seus, autorizados ou com permissão de uso.
-
-## Observação sobre YouTube
-
-O download direto por URL pode falhar em servidores de nuvem com erros como 403, login obrigatório ou confirmação anti-bot. Isso depende do YouTube no momento do acesso. O modo mais estável é baixar o áudio localmente com `yt-dlp` e depois enviar o MP3 pelo upload.
+- O Streamlit Cloud continua limitado pelo tamanho de upload e processamento.
+- Para arquivos muito grandes, use a versão local no computador.
+- A compactação de ZIP nem sempre reduz vídeos MP4, pois eles já são comprimidos.
+- Para reduzir vídeos, use a opção **Compactar áudio/vídeo**.

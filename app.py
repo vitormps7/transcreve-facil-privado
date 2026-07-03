@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import subprocess
+import zipfile
 from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime
@@ -20,7 +21,7 @@ from yt_dlp.utils import DownloadError
 st.set_page_config(page_title="Transcreve Fácil", page_icon="🎙️", layout="wide")
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v5 - YouTube local e erro limpo"
+APP_VERSION = "v6 - fragmentador e compactador"
 ALLOWED_DOMAIN = "@tre-ba.jus.br"
 DEFAULT_USER = "vmsoares@tre-ba.jus.br"
 DEFAULT_PASSWORD = "transcreve123"
@@ -173,6 +174,97 @@ def extract_audio(input_path: str, output_path: str):
     result = run_command(cmd)
     if result.returncode != 0:
         raise RuntimeError(result.stderr[-2500:] if result.stderr else "Falha ao executar FFmpeg.")
+
+
+def make_zip_from_paths(paths: list[str], zip_path: str):
+    """Cria um ZIP com os arquivos informados."""
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for file_path in paths:
+            if os.path.exists(file_path):
+                zf.write(file_path, arcname=os.path.basename(file_path))
+
+
+def fragment_media_by_duration(input_path: str, output_dir: str, segment_seconds: int, original_suffix: str) -> list[str]:
+    """Divide áudio/vídeo em partes por duração, preservando o formato quando possível."""
+    suffix = original_suffix.lower() if original_suffix else ".mp4"
+    pattern = os.path.join(output_dir, f"parte_%03d{suffix}")
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-map", "0", "-c", "copy",
+        "-f", "segment", "-segment_time", str(int(segment_seconds)),
+        "-reset_timestamps", "1", pattern,
+    ]
+    result = run_command(cmd)
+    if result.returncode != 0:
+        # Segunda tentativa, reencodando para MP4 quando o corte sem reencodar falhar.
+        pattern = os.path.join(output_dir, "parte_%03d.mp4")
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+            "-c:a", "aac", "-b:a", "96k",
+            "-f", "segment", "-segment_time", str(int(segment_seconds)),
+            "-reset_timestamps", "1", pattern,
+        ]
+        result = run_command(cmd)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr[-2500:] if result.stderr else "Falha ao fragmentar o arquivo com FFmpeg.")
+    return sorted(str(x) for x in Path(output_dir).glob("parte_*.*"))
+
+
+def split_file_by_size(input_path: str, output_dir: str, chunk_mb: int, original_name: str) -> list[str]:
+    """Divide qualquer arquivo em partes binárias. Para usar depois, as partes precisam ser reunidas em ordem."""
+    chunk_size = int(chunk_mb * 1024 * 1024)
+    base = safe_filename(original_name)
+    parts = []
+    with open(input_path, "rb") as src:
+        index = 1
+        while True:
+            data = src.read(chunk_size)
+            if not data:
+                break
+            part_path = os.path.join(output_dir, f"{base}.part{index:03d}")
+            with open(part_path, "wb") as dst:
+                dst.write(data)
+            parts.append(part_path)
+            index += 1
+    return parts
+
+
+def compress_media(input_path: str, output_path: str, suffix: str, preset: str) -> str:
+    """Compacta mídia por reencodação. Vídeo sai em MP4; áudio sai em MP3."""
+    suffix = suffix.lower()
+    if preset == "Alta qualidade":
+        crf, audio_bitrate = "26", "128k"
+    elif preset == "Equilibrado":
+        crf, audio_bitrate = "30", "96k"
+    else:
+        crf, audio_bitrate = "34", "64k"
+
+    if suffix in VIDEO_EXTS:
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", crf,
+            "-c:a", "aac", "-b:a", audio_bitrate,
+            "-movflags", "+faststart", output_path,
+        ]
+    elif suffix in AUDIO_EXTS:
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-vn", "-codec:a", "libmp3lame", "-b:a", audio_bitrate,
+            output_path,
+        ]
+    else:
+        raise ValueError("Formato de mídia não suportado para compactação.")
+
+    result = run_command(cmd)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr[-2500:] if result.stderr else "Falha ao compactar mídia com FFmpeg.")
+    return output_path
+
+
+def bytes_from_file(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
 
 
 def is_supported_url(url: str) -> bool:
@@ -484,8 +576,8 @@ def app_screen():
                 st.session_state.pop(key, None)
             st.success("Resultado limpo.")
 
-    tab_transcrever, tab_resultado, tab_prompts, tab_youtube_local, tab_ajuda = st.tabs(
-        ["1. Transcrever", "2. Resultado", "3. Prompts", "YouTube local", "Ajuda"]
+    tab_transcrever, tab_resultado, tab_prompts, tab_ferramentas, tab_youtube_local, tab_ajuda = st.tabs(
+        ["1. Transcrever", "2. Resultado", "3. Prompts", "Ferramentas", "YouTube local", "Ajuda"]
     )
 
     with tab_transcrever:
@@ -756,6 +848,154 @@ def app_screen():
                     )
 
 
+    with tab_ferramentas:
+        st.subheader("Ferramentas de arquivo")
+        st.write("Use estas ferramentas para preparar arquivos antes da transcrição ou para reduzir tamanho de envio.")
+
+        ferramenta = st.radio(
+            "Escolha a ferramenta",
+            [
+                "Fragmentar mídia por duração",
+                "Fragmentar qualquer arquivo por tamanho",
+                "Compactar arquivos em ZIP",
+                "Compactar áudio/vídeo",
+            ],
+        )
+
+        if ferramenta == "Fragmentar mídia por duração":
+            st.info("Ideal para dividir vídeos ou áudios longos em partes menores para transcrever separadamente.")
+            media_file = st.file_uploader(
+                "Escolha um áudio ou vídeo",
+                type=[ext.replace(".", "") for ext in SUPPORTED_EXTS],
+                key="fragment_media_upload",
+            )
+            minutos = st.number_input("Duração de cada parte, em minutos", min_value=1, max_value=60, value=10, step=1)
+            if media_file and st.button("Fragmentar mídia", type="primary", use_container_width=True):
+                suffix = Path(media_file.name).suffix.lower()
+                if suffix not in SUPPORTED_EXTS:
+                    st.error("Formato não suportado.")
+                else:
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        input_path = os.path.join(tmpdir, safe_filename(media_file.name) + suffix)
+                        with open(input_path, "wb") as f:
+                            f.write(media_file.getbuffer())
+                        try:
+                            out_dir = os.path.join(tmpdir, "partes")
+                            os.makedirs(out_dir, exist_ok=True)
+                            with st.spinner("Fragmentando arquivo..."):
+                                parts = fragment_media_by_duration(input_path, out_dir, int(minutos * 60), suffix)
+                            if not parts:
+                                st.warning("Nenhuma parte foi gerada.")
+                            else:
+                                zip_path = os.path.join(tmpdir, "partes_fragmentadas.zip")
+                                make_zip_from_paths(parts, zip_path)
+                                st.success(f"Arquivo dividido em {len(parts)} parte(s).")
+                                for part in parts:
+                                    st.write(f"- {os.path.basename(part)} — {os.path.getsize(part) / (1024 * 1024):.1f} MB")
+                                st.download_button(
+                                    "Baixar partes em ZIP",
+                                    bytes_from_file(zip_path),
+                                    file_name=f"{safe_filename(media_file.name)}_partes.zip",
+                                    mime="application/zip",
+                                    use_container_width=True,
+                                )
+                        except Exception as e:
+                            st.error("Não foi possível fragmentar a mídia.")
+                            st.warning(str(e))
+
+        elif ferramenta == "Fragmentar qualquer arquivo por tamanho":
+            st.info("Divide qualquer arquivo em partes binárias. Use quando precisar quebrar um arquivo muito grande.")
+            st.warning("Atenção: essas partes não são transcritas isoladamente como mídia. Elas servem apenas para transporte/armazenamento e precisam ser reunidas depois.")
+            any_file = st.file_uploader("Escolha qualquer arquivo", key="binary_split_upload")
+            tamanho_mb = st.number_input("Tamanho de cada parte, em MB", min_value=1, max_value=100, value=50, step=1)
+            if any_file and st.button("Fragmentar por tamanho", type="primary", use_container_width=True):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    input_path = os.path.join(tmpdir, safe_filename(any_file.name) + Path(any_file.name).suffix)
+                    with open(input_path, "wb") as f:
+                        f.write(any_file.getbuffer())
+                    out_dir = os.path.join(tmpdir, "partes")
+                    os.makedirs(out_dir, exist_ok=True)
+                    parts = split_file_by_size(input_path, out_dir, int(tamanho_mb), any_file.name)
+                    zip_path = os.path.join(tmpdir, "partes_binarias.zip")
+                    make_zip_from_paths(parts, zip_path)
+                    st.success(f"Arquivo dividido em {len(parts)} parte(s).")
+                    st.download_button(
+                        "Baixar partes em ZIP",
+                        bytes_from_file(zip_path),
+                        file_name=f"{safe_filename(any_file.name)}_partes_binarias.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                    )
+
+        elif ferramenta == "Compactar arquivos em ZIP":
+            st.info("Agrupa um ou mais arquivos em um único ZIP. Para vídeos MP4, o ZIP pode não reduzir muito o tamanho.")
+            files = st.file_uploader("Escolha um ou mais arquivos", accept_multiple_files=True, key="zip_upload")
+            if files and st.button("Gerar ZIP", type="primary", use_container_width=True):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    paths = []
+                    for file in files:
+                        output_path = os.path.join(tmpdir, safe_filename(file.name) + Path(file.name).suffix)
+                        with open(output_path, "wb") as f:
+                            f.write(file.getbuffer())
+                        paths.append(output_path)
+                    zip_path = os.path.join(tmpdir, "arquivos_compactados.zip")
+                    make_zip_from_paths(paths, zip_path)
+                    original_size = sum(os.path.getsize(x) for x in paths)
+                    zip_size = os.path.getsize(zip_path)
+                    st.success("ZIP gerado com sucesso.")
+                    c1, c2 = st.columns(2)
+                    c1.metric("Tamanho original", f"{original_size / (1024 * 1024):.1f} MB")
+                    c2.metric("Tamanho do ZIP", f"{zip_size / (1024 * 1024):.1f} MB")
+                    st.download_button(
+                        "Baixar ZIP",
+                        bytes_from_file(zip_path),
+                        file_name="arquivos_compactados.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                    )
+
+        else:
+            st.info("Reduz o tamanho de áudio/vídeo por reencodação. Pode reduzir qualidade, mas facilita upload e transcrição.")
+            media_file = st.file_uploader(
+                "Escolha um áudio ou vídeo para compactar",
+                type=[ext.replace(".", "") for ext in SUPPORTED_EXTS],
+                key="compress_media_upload",
+            )
+            qualidade = st.selectbox("Nível de compactação", ["Alta qualidade", "Equilibrado", "Menor tamanho"], index=1)
+            if media_file and st.button("Compactar mídia", type="primary", use_container_width=True):
+                suffix = Path(media_file.name).suffix.lower()
+                if suffix not in SUPPORTED_EXTS:
+                    st.error("Formato não suportado.")
+                else:
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        input_path = os.path.join(tmpdir, safe_filename(media_file.name) + suffix)
+                        with open(input_path, "wb") as f:
+                            f.write(media_file.getbuffer())
+                        output_ext = ".mp4" if suffix in VIDEO_EXTS else ".mp3"
+                        output_path = os.path.join(tmpdir, safe_filename(media_file.name) + "_compactado" + output_ext)
+                        try:
+                            with st.spinner("Compactando mídia..."):
+                                compress_media(input_path, output_path, suffix, qualidade)
+                            original_size = os.path.getsize(input_path)
+                            compressed_size = os.path.getsize(output_path)
+                            reducao = 0 if original_size == 0 else (1 - compressed_size / original_size) * 100
+                            st.success("Mídia compactada com sucesso.")
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("Original", f"{original_size / (1024 * 1024):.1f} MB")
+                            c2.metric("Compactado", f"{compressed_size / (1024 * 1024):.1f} MB")
+                            c3.metric("Redução", f"{reducao:.0f}%")
+                            st.download_button(
+                                "Baixar arquivo compactado",
+                                bytes_from_file(output_path),
+                                file_name=os.path.basename(output_path),
+                                mime="video/mp4" if output_ext == ".mp4" else "audio/mpeg",
+                                use_container_width=True,
+                            )
+                        except Exception as e:
+                            st.error("Não foi possível compactar a mídia.")
+                            st.warning(str(e))
+
+
     with tab_youtube_local:
         st.subheader("Modo recomendado para YouTube")
         st.info(
@@ -790,7 +1030,8 @@ def app_screen():
             "1. Comece com arquivos curtos.\n\n"
             "2. Use o modelo small para maior estabilidade.\n\n"
             "3. Para vídeos longos, prefira rodar a versão local no computador.\n\n"
-            "4. O resultado não fica salvo permanentemente. Baixe TXT, Word ou PDF assim que terminar."
+            "4. O resultado não fica salvo permanentemente. Baixe TXT, Word ou PDF assim que terminar.\n\n"
+            "5. Use a aba Ferramentas para fragmentar arquivos longos ou compactar arquivos antes do upload."
         )
         st.subheader("Configuração de usuários em Secrets")
         st.code(

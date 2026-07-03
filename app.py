@@ -27,7 +27,7 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v18.5 - tela inicial limpa"
+APP_VERSION = "v18.6 - conversao privada assistida"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
@@ -1025,6 +1025,190 @@ def estimate_warning(file_mb: float, duration: float | None, model_size: str):
         st.warning("No Streamlit Cloud, o modelo small é o mais estável. Medium/large podem ficar lentos ou travar.")
 
 
+
+def windows_safe_bat_text(text: str) -> str:
+    text = (text or "").strip()
+    return text.replace('"', '').replace('\n', '').replace('\r', '')
+
+
+def build_youtube_helper_bat(url: str = "", mode: str = "audio_mp3") -> str:
+    """Gera um arquivo .bat assistido para baixar conteudo autorizado do YouTube no Windows."""
+    url = windows_safe_bat_text(url)
+    ask_url = not bool(url)
+
+    if mode == "video_mp4":
+        title = "Transcreve Facil - YouTube para video"
+        main_cmd = '%PY% -m yt_dlp -f "bv*+ba/best" --merge-output-format mp4 --paths "%OUTDIR%" -o "TranscreveFacil_%(title).80s.%(ext)s" "%URL%"'
+        fallback_cmd = '%PY% -m yt_dlp -f "best" --paths "%OUTDIR%" -o "TranscreveFacil_%(title).80s.%(ext)s" "%URL%"'
+        success_msg = "Video baixado."
+    elif mode == "audio_original":
+        title = "Transcreve Facil - YouTube para audio original"
+        main_cmd = '%PY% -m yt_dlp -f "bestaudio/best" --paths "%OUTDIR%" -o "TranscreveFacil_%(title).80s.%(ext)s" "%URL%"'
+        fallback_cmd = '%PY% -m yt_dlp -f "best" --paths "%OUTDIR%" -o "TranscreveFacil_%(title).80s.%(ext)s" "%URL%"'
+        success_msg = "Audio baixado."
+    else:
+        title = "Transcreve Facil - YouTube para MP3"
+        main_cmd = '%PY% -m yt_dlp -x --audio-format mp3 --audio-quality 0 --paths "%OUTDIR%" -o "TranscreveFacil_%(title).80s.%(ext)s" "%URL%"'
+        fallback_cmd = '%PY% -m yt_dlp -f "bestaudio/best" --paths "%OUTDIR%" -o "TranscreveFacil_%(title).80s.%(ext)s" "%URL%"'
+        success_msg = "Audio preparado. Se o MP3 falhar por falta de FFmpeg, o script tenta baixar o audio original."
+
+    set_url_line = 'set /p URL=Cole a URL do YouTube e pressione ENTER: ' if ask_url else f'set "URL={url}"'
+
+    bat = f"""@echo off
+chcp 65001 >nul
+setlocal
+title {title}
+
+echo ============================================================
+echo  Transcreve Facil - Conversao Privada
+echo ============================================================
+echo.
+echo Use apenas em videos seus, autorizados ou permitidos.
+echo O arquivo sera salvo em: Downloads\\TranscreveFacil
+echo.
+
+{set_url_line}
+
+if "%URL%"=="" (
+    echo Nenhuma URL informada.
+    pause
+    exit /b 1
+)
+
+set "OUTDIR=%USERPROFILE%\\Downloads\\TranscreveFacil"
+if not exist "%OUTDIR%" mkdir "%OUTDIR%"
+
+echo.
+echo Verificando Python...
+where py >nul 2>nul
+if %errorlevel%==0 (
+    set "PY=py"
+) else (
+    set "PY=python"
+)
+
+%PY% --version >nul 2>nul
+if errorlevel 1 (
+    echo Python nao encontrado.
+    echo Instale o Python em https://www.python.org/downloads/ e marque "Add Python to PATH".
+    pause
+    exit /b 1
+)
+
+echo.
+echo Atualizando ferramenta de download...
+%PY% -m pip install -U yt-dlp
+
+echo.
+echo Baixando conteudo autorizado...
+{main_cmd}
+
+if errorlevel 1 (
+    echo.
+    echo A primeira tentativa falhou. Tentando modo alternativo...
+    {fallback_cmd}
+)
+
+if errorlevel 1 (
+    echo.
+    echo Nao foi possivel baixar o conteudo.
+    echo O YouTube pode ter bloqueado o acesso, exigido login ou o video pode estar indisponivel.
+    pause
+    exit /b 1
+)
+
+echo.
+echo {success_msg}
+echo Abra a pasta, selecione o arquivo gerado e envie no Transcreve Facil pela aba Transcrever.
+echo.
+start "" "%OUTDIR%"
+pause
+"""
+    return bat.replace("\n", "\r\n")
+
+
+def render_conversao_privada_page():
+    st.subheader("Conversão privada / YouTube assistido")
+    st.info(
+        "Este módulo resolve o bloqueio do YouTube no Streamlit Cloud. "
+        "Você gera um pequeno baixador local pelo próprio sistema, executa no Windows, "
+        "e depois envia o arquivo gerado pela aba Transcrever."
+    )
+
+    st.markdown("### 1. Cole a URL do vídeo")
+    url = st.text_input(
+        "URL do YouTube",
+        placeholder="https://www.youtube.com/watch?v=...",
+        key="conv_priv_url",
+    )
+
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        st.markdown(
+            "<div class='tf-mini-card'><div class='tf-mini-icon'>🎧</div><b>YouTube para MP3</b>"
+            "<p>Melhor opção para transcrição. Tenta converter para MP3.</p></div>",
+            unsafe_allow_html=True,
+        )
+        st.download_button(
+            "Baixar assistente MP3",
+            data=build_youtube_helper_bat(url, "audio_mp3"),
+            file_name="TranscreveFacil_YouTube_para_MP3.bat",
+            mime="application/octet-stream",
+            use_container_width=True,
+        )
+    with col_b:
+        st.markdown(
+            "<div class='tf-mini-card'><div class='tf-mini-icon blue'>🎙️</div><b>Áudio original</b>"
+            "<p>Baixa o melhor áudio disponível, sem exigir conversão.</p></div>",
+            unsafe_allow_html=True,
+        )
+        st.download_button(
+            "Baixar assistente áudio",
+            data=build_youtube_helper_bat(url, "audio_original"),
+            file_name="TranscreveFacil_YouTube_audio_original.bat",
+            mime="application/octet-stream",
+            use_container_width=True,
+        )
+    with col_c:
+        st.markdown(
+            "<div class='tf-mini-card'><div class='tf-mini-icon orange'>🎬</div><b>Vídeo MP4</b>"
+            "<p>Baixa o vídeo para guardar ou processar depois.</p></div>",
+            unsafe_allow_html=True,
+        )
+        st.download_button(
+            "Baixar assistente vídeo",
+            data=build_youtube_helper_bat(url, "video_mp4"),
+            file_name="TranscreveFacil_YouTube_video_MP4.bat",
+            mime="application/octet-stream",
+            use_container_width=True,
+        )
+
+    st.markdown("### 2. Como usar")
+    st.write(
+        "1. Baixe uma das opções acima.\n\n"
+        "2. Dê dois cliques no arquivo `.bat` baixado.\n\n"
+        "3. Se o Windows mostrar aviso, escolha **Mais informações** e depois **Executar assim mesmo**, se confiar no arquivo.\n\n"
+        "4. O arquivo será salvo em `Downloads > TranscreveFacil`.\n\n"
+        "5. Volte ao sistema e envie o áudio pela aba **Transcrever**."
+    )
+
+    st.warning(
+        "Use apenas em vídeos seus, autorizados ou permitidos. "
+        "O arquivo .bat roda no seu computador porque o navegador não pode executar esse tipo de tarefa diretamente por segurança."
+    )
+
+    st.markdown("### 3. Assistente genérico")
+    st.caption("Use este caso queira baixar o assistente uma vez e colar URLs diferentes quando ele abrir.")
+    st.download_button(
+        "Baixar assistente genérico de MP3",
+        data=build_youtube_helper_bat("", "audio_mp3"),
+        file_name="TranscreveFacil_Assistente_Generico_MP3.bat",
+        mime="application/octet-stream",
+        use_container_width=True,
+    )
+
+
+
 # -------------------------
 # Tela principal
 # -------------------------
@@ -1049,6 +1233,7 @@ def app_screen():
             ("Resultado", "📥", "Resultado"),
             ("Prompts", "✨", "Prompts"),
             ("Ferramentas", "🧰", "Ferramentas"),
+            ("Conversao privada", "🔐", "Conversão privada"),
             ("YouTube local", "▶️", "YouTube local"),
             ("Ajuda", "❔", "Ajuda"),
         ]
@@ -1558,6 +1743,9 @@ def app_screen():
                             st.error("Não foi possível compactar a mídia.")
                             st.warning(str(e))
 
+
+    elif page == "Conversao privada":
+        render_conversao_privada_page()
 
     elif page == "YouTube local":
         st.subheader("Modo recomendado para YouTube")

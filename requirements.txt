@@ -1,5 +1,6 @@
-streamlit
-faster-whisper
-python-docx
-reportlab
+streamlit==1.41.1
+faster-whisper==1.1.1
+ctranslate2==4.6.0
+python-docx==1.1.2
+reportlab==4.2.5
 yt-dlp

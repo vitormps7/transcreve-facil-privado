@@ -27,7 +27,7 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v18.7 - upload funcional corrigido"
+APP_VERSION = "v18.9 - transcrição com fallback"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
@@ -886,14 +886,149 @@ def download_audio_from_url(url: str, output_dir: str, cookies_path: str | None 
     raise RuntimeError(message) from last_error
 
 
+def install_python_package(package_spec: str):
+    """Instala pacote em tempo de execução com erro legível."""
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--no-cache-dir", package_spec],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(details[-4000:] if details else f"Falha ao instalar {package_spec}.")
+    return True
+
+
 @st.cache_resource(show_spinner=False)
 def load_model(model_size: str):
     try:
         from faster_whisper import WhisperModel
     except Exception:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "faster-whisper"])
+        # Instalação sob demanda. Pinamos versões para reduzir incompatibilidades no Streamlit Cloud.
+        try:
+            install_python_package("ctranslate2==4.6.0")
+            install_python_package("faster-whisper==1.1.1")
+        except Exception:
+            # Segunda tentativa sem versões fixas, caso o ambiente tenha outra versão de Python.
+            install_python_package("faster-whisper")
         from faster_whisper import WhisperModel
     return WhisperModel(model_size, device="cpu", compute_type="int8")
+
+
+def transcribe_with_google_fallback(audio_path: str, duration: float | None, include_timestamps: bool, progress):
+    """Fallback simples quando faster-whisper não instala no Streamlit Cloud.
+
+    Observação: este fallback usa o serviço gratuito do Google Web Speech via biblioteca
+    SpeechRecognition. Portanto, use apenas se aceitar esse processamento externo.
+    """
+    try:
+        import speech_recognition as sr
+    except Exception:
+        install_python_package("SpeechRecognition")
+        import speech_recognition as sr
+
+    wav_path = audio_path
+    if not audio_path.lower().endswith(".wav"):
+        wav_path = audio_path + ".fallback.wav"
+        extract_audio(audio_path, wav_path)
+
+    recognizer = sr.Recognizer()
+    chunk_seconds = 45
+    lines = []
+    plain_parts = []
+    segments_data = []
+
+    with sr.AudioFile(wav_path) as source:
+        total = float(getattr(source, "DURATION", None) or duration or 0)
+        offset = 0.0
+        while True:
+            audio = recognizer.record(source, duration=chunk_seconds)
+            if not getattr(audio, "frame_data", b""):
+                break
+
+            start = offset
+            end = offset + chunk_seconds
+            offset = end
+
+            try:
+                text = recognizer.recognize_google(audio, language="pt-BR")
+            except sr.UnknownValueError:
+                text = ""
+            except Exception as exc:
+                text = f"[trecho não reconhecido: {exc}]"
+
+            text = (text or "").strip()
+            if text:
+                plain_parts.append(text)
+                segments_data.append({"start": start, "end": end, "text": text})
+                if include_timestamps:
+                    lines.append(f"[{seconds_to_hhmmss(start)} - {seconds_to_hhmmss(end)}] {text}")
+                else:
+                    lines.append(text)
+
+            if total:
+                pct = 55 + min(40, int((min(offset, total) / total) * 40))
+                progress.progress(pct, text=f"Transcrevendo com fallback... {min(100, int((min(offset, total) / total) * 100))}%")
+
+            if total and offset >= total:
+                break
+
+    if not lines:
+        raise RuntimeError("Nenhuma fala foi reconhecida pelo fallback.")
+
+    return "\\n".join(lines), "\\n".join(plain_parts), segments_data, "google-web-speech-fallback", None
+
+
+def transcribe_audio_engine(audio_path: str, duration: float | None, model_size: str, beam_size: int, include_timestamps: bool, progress):
+    """Tenta faster-whisper; se falhar, usa fallback online simples."""
+    try:
+        progress.progress(40, text="Carregando modelo de transcrição...")
+        model = load_model(model_size)
+
+        progress.progress(55, text="Transcrevendo. Aguarde...")
+        segments, info = model.transcribe(
+            audio_path,
+            language="pt",
+            vad_filter=True,
+            beam_size=beam_size,
+        )
+
+        lines = []
+        plain_parts = []
+        segments_data = []
+        last_progress = 55
+
+        for seg in segments:
+            text = (seg.text or "").strip()
+            if not text:
+                continue
+            segments_data.append({"start": seg.start, "end": seg.end, "text": text})
+            plain_parts.append(text)
+            if include_timestamps:
+                lines.append(f"[{seconds_to_hhmmss(seg.start)} - {seconds_to_hhmmss(seg.end)}] {text}")
+            else:
+                lines.append(text)
+
+            if duration and duration > 0:
+                pct = 55 + min(40, int((seg.end / duration) * 40))
+                if pct > last_progress:
+                    progress.progress(pct, text=f"Transcrevendo... {min(100, int((seg.end / duration) * 100))}%")
+                    last_progress = pct
+
+        if not lines:
+            raise RuntimeError("Nenhuma fala foi identificada no arquivo.")
+
+        return "\\n".join(lines), "\\n".join(plain_parts), segments_data, "faster-whisper", info
+
+    except Exception as fast_error:
+        st.warning(
+            "O motor local faster-whisper não pôde ser instalado/carregado neste ambiente. "
+            "Vou tentar um fallback online simples para concluir a transcrição."
+        )
+        with st.expander("Detalhes técnicos do motor local"):
+            st.code(str(fast_error)[-4000:])
+        return transcribe_with_google_fallback(audio_path, duration, include_timestamps, progress)
+
 
 
 def save_docx(lines: list[str], metadata: dict) -> bytes:
@@ -1466,45 +1601,15 @@ def app_screen():
                             return
 
                     try:
-                        progress.progress(40, text="Carregando modelo de transcrição...")
-                        model = load_model(model_size)
-
-                        progress.progress(55, text="Transcrevendo. Aguarde...")
-                        segments, info = model.transcribe(
-                            audio_path,
-                            language="pt",
-                            vad_filter=True,
+                        final_text, plain_text, segments_data, engine_name, info = transcribe_audio_engine(
+                            audio_path=audio_path,
+                            duration=duration,
+                            model_size=model_size,
                             beam_size=beam_size,
+                            include_timestamps=include_timestamps,
+                            progress=progress,
                         )
 
-                        lines = []
-                        plain_parts = []
-                        segments_data = []
-                        last_progress = 55
-
-                        for seg in segments:
-                            text = (seg.text or "").strip()
-                            if not text:
-                                continue
-                            segments_data.append({"start": seg.start, "end": seg.end, "text": text})
-                            plain_parts.append(text)
-                            if include_timestamps:
-                                lines.append(f"[{seconds_to_hhmmss(seg.start)} - {seconds_to_hhmmss(seg.end)}] {text}")
-                            else:
-                                lines.append(text)
-
-                            if duration and duration > 0:
-                                pct = 55 + min(40, int((seg.end / duration) * 40))
-                                if pct > last_progress:
-                                    progress.progress(pct, text=f"Transcrevendo... {min(100, int((seg.end / duration) * 100))}%")
-                                    last_progress = pct
-
-                        if not lines:
-                            st.warning("Nenhuma fala foi identificada no arquivo.")
-                            return
-
-                        plain_text = "\n".join(plain_parts)
-                        final_text = "\n".join(lines)
                         generated_at = datetime.now().strftime("%d/%m/%Y %H:%M")
                         metadata = {
                             "filename": source_title,
@@ -1515,7 +1620,8 @@ def app_screen():
                             "url": yt_meta.get("webpage_url", "") if origem == "URL do YouTube" else "",
                             "uploader": yt_meta.get("uploader", "") if origem == "URL do YouTube" else "",
                             "generated_at": generated_at,
-                            "language_probability": getattr(info, "language_probability", None),
+                            "language_probability": getattr(info, "language_probability", None) if info is not None else None,
+                            "engine": engine_name,
                         }
 
                         st.session_state["last_transcription"] = final_text
@@ -1527,7 +1633,7 @@ def app_screen():
                         status_box.success("Transcrição concluída. Abra a aba Resultado para baixar os arquivos.")
                     except Exception as e:
                         st.error("Erro durante a transcrição.")
-                        st.info("Tente novamente com o modelo small, use um arquivo menor ou envie apenas o áudio em MP3/WAV.")
+                        st.info("Tente novamente com arquivo menor, envie apenas o áudio em MP3/WAV ou use a Conversão privada para preparar o arquivo.")
                         st.caption(str(e))
                         return
 

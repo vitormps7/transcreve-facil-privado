@@ -1,72 +1,38 @@
-# Transcreve Fácil Privado
+# Transcreve Fácil - acesso institucional
 
-Sistema privado em Streamlit para transcrever vídeos e áudios em português.
+Sistema privado em Streamlit para transcrição de vídeos e áudios.
 
-## Recursos
+## Acesso inicial
 
-- Upload de vídeo ou áudio.
-- Extração automática do áudio com FFmpeg.
-- Transcrição com Faster-Whisper.
-- Marcação de tempo.
-- Download em TXT e Word.
-- Senha de acesso.
-- Prompts prontos para revisão, resumo, ata, tabela e checklist no ChatGPT.
+E-mail: `vmsoares@tre-ba.jus.br`
+Senha: `transcreve123`
 
-## Senha inicial
+## Secrets recomendados no Streamlit Cloud
 
-A senha inicial é:
-
-```text
-transcreve123
-```
-
-Troque a senha no Streamlit Cloud em `Settings > Secrets`.
-
-## Rodar no computador
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-## Publicar no Streamlit Cloud
-
-1. Crie um repositório privado no GitHub chamado `transcreve-facil-privado`.
-2. Envie estes arquivos para o repositório:
-   - `app.py`
-   - `requirements.txt`
-   - `packages.txt`
-   - `README.md`
-   - `.gitignore`
-3. Entre no Streamlit Cloud.
-4. Clique em `New app`.
-5. Escolha o repositório.
-6. Em `Main file path`, coloque:
-
-```text
-app.py
-```
-
-7. Clique em `Deploy`.
-
-## Trocar a senha no Streamlit Cloud
-
-No app publicado:
-
-1. Acesse `Settings`.
-2. Entre em `Secrets`.
-3. Cole:
+Em **Manage app > Settings > Secrets**, use:
 
 ```toml
-APP_PASSWORD = "sua_senha_segura_aqui"
+[users]
+"vmsoares@tre-ba.jus.br" = "SUA_SENHA_FORTE"
+
+[profiles]
+"vmsoares@tre-ba.jus.br" = "admin"
 ```
 
-4. Salve.
-5. Reinicie o app.
+Para adicionar outro usuário:
 
-## Observações
+```toml
+[users]
+"outro.usuario@tre-ba.jus.br" = "senha_do_usuario"
 
-- No Streamlit Cloud, comece usando o modelo `small`.
-- Arquivos grandes podem demorar ou falhar na nuvem.
-- Para vídeos longos, prefira rodar no computador.
-- O app apaga arquivos temporários ao final do processamento.
+[profiles]
+"outro.usuario@tre-ba.jus.br" = "usuario"
+```
+
+O sistema só aceita e-mails `@tre-ba.jus.br`.
+
+## Arquivos importantes
+
+- `app.py`: sistema principal
+- `requirements.txt`: bibliotecas Python
+- `packages.txt`: instala FFmpeg no Streamlit Cloud

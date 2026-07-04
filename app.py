@@ -27,7 +27,7 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v18.14 - fragmentador local obrigatorio"
+APP_VERSION = "v18.15 - fragmentador local com FFmpeg portatil"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
@@ -1371,10 +1371,14 @@ def render_conversao_privada_page():
 
 
 def build_local_fragmenter_bat() -> str:
-    """Gera assistente local para fragmentar mídia grande no Windows."""
+    """Gera assistente local para fragmentar mídia grande no Windows.
+
+    Esta versão não depende do winget. Se não encontrar FFmpeg, baixa uma versão
+    portátil em Downloads\\TranscreveFacil_FFmpeg.
+    """
     bat = r"""@echo off
 chcp 65001 >nul
-setlocal
+setlocal EnableExtensions
 title Transcreve Facil - Fragmentador Local
 
 echo ============================================================
@@ -1384,6 +1388,12 @@ echo.
 echo Use este assistente para arquivos grandes demais para o Streamlit Cloud.
 echo Ele divide videos/audios em partes menores no seu computador.
 echo.
+
+set "BASE=%USERPROFILE%\Downloads"
+set "FFROOT=%BASE%\TranscreveFacil_FFmpeg"
+set "FFZIP=%BASE%\TranscreveFacil_FFmpeg.zip"
+set "FFURL=https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+set "OUTDIR=%BASE%\TranscreveFacil_Fragmentado"
 
 set /p INPUT=Cole o caminho completo do arquivo ou arraste o arquivo aqui e pressione ENTER: 
 set INPUT=%INPUT:"=%
@@ -1405,38 +1415,79 @@ set /p MINUTES=Duracao de cada parte em minutos [padrao 10]:
 if "%MINUTES%"=="" set MINUTES=10
 set /a SECONDS=%MINUTES%*60
 
-set "OUTDIR=%USERPROFILE%\Downloads\TranscreveFacil_Fragmentado"
 if not exist "%OUTDIR%" mkdir "%OUTDIR%"
 
 echo.
-echo Verificando FFmpeg...
+echo Procurando FFmpeg no computador...
 where ffmpeg >nul 2>nul
-if errorlevel 1 (
-    echo FFmpeg nao encontrado. Tentando instalar pelo winget...
-    winget install Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements
+if not errorlevel 1 (
+    set "FFMPEG=ffmpeg"
+    goto :ffmpeg_ok
 )
 
-where ffmpeg >nul 2>nul
+echo FFmpeg nao encontrado no PATH.
+echo Vou baixar uma versao portatil para:
+echo %FFROOT%
+echo.
+
+if not exist "%FFROOT%" mkdir "%FFROOT%"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%FFURL%' -OutFile '%FFZIP%' -UseBasicParsing } catch { Write-Host $_.Exception.Message; exit 1 }"
+
 if errorlevel 1 (
-    echo Nao foi possivel localizar o FFmpeg.
-    echo Instale manualmente e tente novamente: https://www.gyan.dev/ffmpeg/builds/
+    echo.
+    echo Nao foi possivel baixar o FFmpeg automaticamente.
+    echo Baixe manualmente em:
+    echo https://www.gyan.dev/ffmpeg/builds/
+    echo.
+    echo Depois extraia o ZIP e execute novamente este assistente.
     pause
     exit /b 1
 )
 
 echo.
+echo Extraindo FFmpeg...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Expand-Archive -Path '%FFZIP%' -DestinationPath '%FFROOT%' -Force } catch { Write-Host $_.Exception.Message; exit 1 }"
+
+if errorlevel 1 (
+    echo.
+    echo Nao foi possivel extrair o FFmpeg.
+    echo Tente extrair manualmente o arquivo:
+    echo %FFZIP%
+    pause
+    exit /b 1
+)
+
+for /r "%FFROOT%" %%F in (ffmpeg.exe) do (
+    set "FFMPEG=%%F"
+    goto :ffmpeg_ok
+)
+
+echo.
+echo Nao localizei ffmpeg.exe dentro da pasta extraida.
+echo Pasta:
+echo %FFROOT%
+pause
+exit /b 1
+
+:ffmpeg_ok
+echo.
+echo FFmpeg localizado:
+echo %FFMPEG%
+echo.
 echo Fragmentando sem recodificar...
-ffmpeg -hide_banner -y -i "%INPUT%" -map 0 -c copy -f segment -segment_time %SECONDS% -reset_timestamps 1 "%OUTDIR%\parte_%%03d.mp4"
+"%FFMPEG%" -hide_banner -y -i "%INPUT%" -map 0 -c copy -f segment -segment_time %SECONDS% -reset_timestamps 1 "%OUTDIR%\parte_%%03d.mp4"
 
 if errorlevel 1 (
     echo.
     echo A divisao sem recodificar falhou. Tentando gerar audios MP3 leves...
-    ffmpeg -hide_banner -y -i "%INPUT%" -vn -acodec libmp3lame -ar 16000 -ac 1 -b:a 64k -f segment -segment_time %SECONDS% -reset_timestamps 1 "%OUTDIR%\audio_parte_%%03d.mp3"
+    "%FFMPEG%" -hide_banner -y -i "%INPUT%" -vn -acodec libmp3lame -ar 16000 -ac 1 -b:a 64k -f segment -segment_time %SECONDS% -reset_timestamps 1 "%OUTDIR%\audio_parte_%%03d.mp3"
 )
 
 if errorlevel 1 (
     echo.
     echo Nao foi possivel fragmentar o arquivo.
+    echo Tente reduzir o nome do arquivo, mover para Downloads ou escolher partes menores.
     pause
     exit /b 1
 )
@@ -1458,7 +1509,7 @@ def show_large_file_local_fragmenter_notice():
         "Para evitar queda do app no final do processamento, use o Fragmentador Local abaixo."
     )
     st.download_button(
-        "Baixar Fragmentador Local do Transcreve Fácil",
+        "Baixar Fragmentador Local com FFmpeg portátil do Transcreve Fácil",
         data=build_local_fragmenter_bat(),
         file_name="TranscreveFacil_Fragmentador_Local.bat",
         mime="application/octet-stream",
@@ -1855,7 +1906,7 @@ def app_screen():
         c1, c2 = st.columns([1, 1])
         with c1:
             st.download_button(
-                "Baixar Fragmentador Local",
+                "Baixar Fragmentador Local com FFmpeg portátil",
                 data=build_local_fragmenter_bat(),
                 file_name="TranscreveFacil_Fragmentador_Local.bat",
                 mime="application/octet-stream",
@@ -1867,7 +1918,7 @@ def app_screen():
         st.markdown("### Como usar")
         st.write(
             "1. Baixe o Fragmentador Local.\n\n"
-            "2. Dê dois cliques no arquivo `.bat`.\n\n"
+            "2. Dê dois cliques no arquivo `.bat`. Se o FFmpeg não estiver instalado, o assistente tentará baixar uma versão portátil automaticamente.\n\n"
             "3. Arraste o vídeo/áudio para a janela que abrir.\n\n"
             "4. Informe a duração de cada parte, por exemplo, `10` minutos.\n\n"
             "5. As partes serão salvas em `Downloads > TranscreveFacil_Fragmentado`.\n\n"

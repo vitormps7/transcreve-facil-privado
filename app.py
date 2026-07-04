@@ -27,7 +27,7 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v18.15 - fragmentador local com FFmpeg portatil"
+APP_VERSION = "v18.16 - fragmentador local robusto"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
@@ -1371,133 +1371,100 @@ def render_conversao_privada_page():
 
 
 def build_local_fragmenter_bat() -> str:
-    """Gera assistente local para fragmentar mídia grande no Windows.
+    """Gera assistente local robusto usando PowerShell para evitar problemas de aspas/caminho no Windows."""
+    ps_script = """
+$ErrorActionPreference = "Stop"
+Write-Host "============================================================"
+Write-Host " Transcreve Facil - Fragmentador Local Robusto"
+Write-Host "============================================================"
+Write-Host ""
+Write-Host "Use este assistente para arquivos grandes demais para o Streamlit Cloud."
+Write-Host ""
 
-    Esta versão não depende do winget. Se não encontrar FFmpeg, baixa uma versão
-    portátil em Downloads\\TranscreveFacil_FFmpeg.
-    """
-    bat = r"""@echo off
+$inputPath = Read-Host "Cole o caminho completo do arquivo ou arraste o arquivo aqui"
+$inputPath = $inputPath.Trim('"')
+
+if ([string]::IsNullOrWhiteSpace($inputPath) -or -not (Test-Path $inputPath)) {
+    Write-Host "Arquivo nao encontrado."
+    Read-Host "Pressione ENTER para sair"
+    exit 1
+}
+
+$minutesText = Read-Host "Duracao de cada parte em minutos [padrao 10]"
+if ([string]::IsNullOrWhiteSpace($minutesText)) { $minutes = 10 } else { $minutes = [int]$minutesText }
+$seconds = $minutes * 60
+
+$downloads = Join-Path $env:USERPROFILE "Downloads"
+$outDir = Join-Path $downloads "TranscreveFacil_Fragmentado"
+$ffRoot = Join-Path $downloads "TranscreveFacil_FFmpeg"
+$ffZip = Join-Path $downloads "TranscreveFacil_FFmpeg.zip"
+
+New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+New-Item -ItemType Directory -Force -Path $ffRoot | Out-Null
+
+Write-Host ""
+Write-Host "Procurando FFmpeg..."
+$ffmpegCmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
+if ($ffmpegCmd) { $ffmpeg = $ffmpegCmd.Source } else { $ffmpeg = $null }
+
+if (-not $ffmpeg) {
+    $existing = Get-ChildItem -Path $ffRoot -Filter ffmpeg.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($existing) { $ffmpeg = $existing.FullName }
+}
+
+if (-not $ffmpeg) {
+    Write-Host "FFmpeg nao encontrado. Baixando versao portatil..."
+    $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $url -OutFile $ffZip -UseBasicParsing
+    Write-Host "Extraindo FFmpeg..."
+    Expand-Archive -Path $ffZip -DestinationPath $ffRoot -Force
+    $existing = Get-ChildItem -Path $ffRoot -Filter ffmpeg.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($existing) { $ffmpeg = $existing.FullName }
+}
+
+if (-not $ffmpeg -or -not (Test-Path $ffmpeg)) {
+    Write-Host "Nao foi possivel localizar ffmpeg.exe."
+    Read-Host "Pressione ENTER para sair"
+    exit 1
+}
+
+Write-Host ""
+Write-Host ("FFmpeg localizado: " + $ffmpeg)
+Write-Host "Fragmentando sem recodificar..."
+$patternMp4 = Join-Path $outDir "parte_%03d.mp4"
+$args1 = @("-hide_banner", "-y", "-i", $inputPath, "-map", "0", "-c", "copy", "-f", "segment", "-segment_time", "$seconds", "-reset_timestamps", "1", $patternMp4)
+& $ffmpeg @args1
+$code = $LASTEXITCODE
+
+if ($code -ne 0) {
+    Write-Host ""
+    Write-Host "A divisao sem recodificar falhou. Tentando gerar audios MP3 leves..."
+    $patternMp3 = Join-Path $outDir "audio_parte_%03d.mp3"
+    $args2 = @("-hide_banner", "-y", "-i", $inputPath, "-vn", "-acodec", "libmp3lame", "-ar", "16000", "-ac", "1", "-b:a", "64k", "-f", "segment", "-segment_time", "$seconds", "-reset_timestamps", "1", $patternMp3)
+    & $ffmpeg @args2
+    $code = $LASTEXITCODE
+}
+
+if ($code -ne 0) {
+    Write-Host "Nao foi possivel fragmentar o arquivo."
+    Write-Host "Tente mover o arquivo para Downloads, reduzir o nome do arquivo ou escolher partes menores."
+    Read-Host "Pressione ENTER para sair"
+    exit 1
+}
+
+Write-Host ""
+Write-Host ("Concluido. As partes foram salvas em: " + $outDir)
+Start-Process explorer.exe $outDir
+Read-Host "Pressione ENTER para sair"
+"""
+    encoded = ps_script.encode("utf-16le")
+    import base64 as _b64
+    ps_b64 = _b64.b64encode(encoded).decode("ascii")
+    bat = f"""@echo off
 chcp 65001 >nul
-setlocal EnableExtensions
-title Transcreve Facil - Fragmentador Local
-
-echo ============================================================
-echo  Transcreve Facil - Fragmentador Local
-echo ============================================================
-echo.
-echo Use este assistente para arquivos grandes demais para o Streamlit Cloud.
-echo Ele divide videos/audios em partes menores no seu computador.
-echo.
-
-set "BASE=%USERPROFILE%\Downloads"
-set "FFROOT=%BASE%\TranscreveFacil_FFmpeg"
-set "FFZIP=%BASE%\TranscreveFacil_FFmpeg.zip"
-set "FFURL=https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-set "OUTDIR=%BASE%\TranscreveFacil_Fragmentado"
-
-set /p INPUT=Cole o caminho completo do arquivo ou arraste o arquivo aqui e pressione ENTER: 
-set INPUT=%INPUT:"=%
-
-if "%INPUT%"=="" (
-    echo Nenhum arquivo informado.
-    pause
-    exit /b 1
-)
-
-if not exist "%INPUT%" (
-    echo Arquivo nao encontrado:
-    echo %INPUT%
-    pause
-    exit /b 1
-)
-
-set /p MINUTES=Duracao de cada parte em minutos [padrao 10]: 
-if "%MINUTES%"=="" set MINUTES=10
-set /a SECONDS=%MINUTES%*60
-
-if not exist "%OUTDIR%" mkdir "%OUTDIR%"
-
-echo.
-echo Procurando FFmpeg no computador...
-where ffmpeg >nul 2>nul
-if not errorlevel 1 (
-    set "FFMPEG=ffmpeg"
-    goto :ffmpeg_ok
-)
-
-echo FFmpeg nao encontrado no PATH.
-echo Vou baixar uma versao portatil para:
-echo %FFROOT%
-echo.
-
-if not exist "%FFROOT%" mkdir "%FFROOT%"
-
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%FFURL%' -OutFile '%FFZIP%' -UseBasicParsing } catch { Write-Host $_.Exception.Message; exit 1 }"
-
-if errorlevel 1 (
-    echo.
-    echo Nao foi possivel baixar o FFmpeg automaticamente.
-    echo Baixe manualmente em:
-    echo https://www.gyan.dev/ffmpeg/builds/
-    echo.
-    echo Depois extraia o ZIP e execute novamente este assistente.
-    pause
-    exit /b 1
-)
-
-echo.
-echo Extraindo FFmpeg...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Expand-Archive -Path '%FFZIP%' -DestinationPath '%FFROOT%' -Force } catch { Write-Host $_.Exception.Message; exit 1 }"
-
-if errorlevel 1 (
-    echo.
-    echo Nao foi possivel extrair o FFmpeg.
-    echo Tente extrair manualmente o arquivo:
-    echo %FFZIP%
-    pause
-    exit /b 1
-)
-
-for /r "%FFROOT%" %%F in (ffmpeg.exe) do (
-    set "FFMPEG=%%F"
-    goto :ffmpeg_ok
-)
-
-echo.
-echo Nao localizei ffmpeg.exe dentro da pasta extraida.
-echo Pasta:
-echo %FFROOT%
-pause
-exit /b 1
-
-:ffmpeg_ok
-echo.
-echo FFmpeg localizado:
-echo %FFMPEG%
-echo.
-echo Fragmentando sem recodificar...
-"%FFMPEG%" -hide_banner -y -i "%INPUT%" -map 0 -c copy -f segment -segment_time %SECONDS% -reset_timestamps 1 "%OUTDIR%\parte_%%03d.mp4"
-
-if errorlevel 1 (
-    echo.
-    echo A divisao sem recodificar falhou. Tentando gerar audios MP3 leves...
-    "%FFMPEG%" -hide_banner -y -i "%INPUT%" -vn -acodec libmp3lame -ar 16000 -ac 1 -b:a 64k -f segment -segment_time %SECONDS% -reset_timestamps 1 "%OUTDIR%\audio_parte_%%03d.mp3"
-)
-
-if errorlevel 1 (
-    echo.
-    echo Nao foi possivel fragmentar o arquivo.
-    echo Tente reduzir o nome do arquivo, mover para Downloads ou escolher partes menores.
-    pause
-    exit /b 1
-)
-
-echo.
-echo Concluido. As partes foram salvas em:
-echo %OUTDIR%
-echo.
-echo Envie as partes menores no Transcreve Facil pela aba Transcrever.
-start "" "%OUTDIR%"
+title Transcreve Facil - Fragmentador Local Robusto
+powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand {ps_b64}
 pause
 """
     return bat.replace("\n", "\r\n")
@@ -1509,7 +1476,7 @@ def show_large_file_local_fragmenter_notice():
         "Para evitar queda do app no final do processamento, use o Fragmentador Local abaixo."
     )
     st.download_button(
-        "Baixar Fragmentador Local com FFmpeg portátil do Transcreve Fácil",
+        "Baixar Fragmentador Local robusto do Transcreve Fácil",
         data=build_local_fragmenter_bat(),
         file_name="TranscreveFacil_Fragmentador_Local.bat",
         mime="application/octet-stream",
@@ -1906,7 +1873,7 @@ def app_screen():
         c1, c2 = st.columns([1, 1])
         with c1:
             st.download_button(
-                "Baixar Fragmentador Local com FFmpeg portátil",
+                "Baixar Fragmentador Local robusto",
                 data=build_local_fragmenter_bat(),
                 file_name="TranscreveFacil_Fragmentador_Local.bat",
                 mime="application/octet-stream",
@@ -1941,8 +1908,8 @@ def app_screen():
             )
             if zip_files and st.button("Gerar ZIP", type="primary", use_container_width=True):
                 total_mb = sum(f.size for f in zip_files) / (1024 * 1024)
-                if total_mb > 300:
-                    st.error("Conjunto muito grande para ZIP seguro no Streamlit Cloud. Use ferramenta local.")
+                if total_mb > 120:
+                    st.error("Conjunto acima de 120 MB. Para evitar erro de rede no Streamlit Cloud, use ferramenta local.")
                     st.stop()
                 with tempfile.TemporaryDirectory() as tmpdir:
                     paths = []
@@ -1971,8 +1938,8 @@ def app_screen():
             )
             output_ext = st.selectbox("Formato de saída", [".mp3", ".mp4"], index=0)
             if uploaded and st.button("Compactar mídia", type="primary", use_container_width=True):
-                if uploaded.size > 300 * 1024 * 1024:
-                    st.error("Arquivo grande demais para compactação segura na nuvem. Use ferramenta local.")
+                if uploaded.size > 120 * 1024 * 1024:
+                    st.error("Arquivo acima de 120 MB. Para evitar erro de rede no Streamlit Cloud, use o Fragmentador Local robusto.")
                     st.stop()
                 with tempfile.TemporaryDirectory() as tmpdir:
                     suffix = Path(uploaded.name).suffix.lower()

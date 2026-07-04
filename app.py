@@ -4,7 +4,6 @@ import re
 import tempfile
 import subprocess
 import zipfile
-import shutil
 import sys
 import base64
 import io
@@ -28,7 +27,7 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v18.12 - fragmentacao segura e diagnostico"
+APP_VERSION = "v18.13 - fragmentacao local segura"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
@@ -649,34 +648,12 @@ def extract_audio(input_path: str, output_path: str):
 
 
 def make_zip_from_paths(paths: list[str], zip_path: str):
-    """Cria um ZIP com os arquivos informados, sem recomprimir, para reduzir risco de travamento."""
+    """Cria um ZIP com os arquivos informados sem recomprimir, para reduzir uso de CPU/memória."""
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
         for file_path in paths:
             if os.path.exists(file_path):
                 zf.write(file_path, arcname=os.path.basename(file_path))
 
-
-def safe_zip_download_button(label: str, zip_path: str, file_name: str, key: str | None = None):
-    """Evita tentar entregar ZIP gigantesco pelo Streamlit Cloud."""
-    if not os.path.exists(zip_path):
-        st.error("O ZIP não foi gerado.")
-        return
-    size_mb = os.path.getsize(zip_path) / (1024 * 1024)
-    st.info(f"ZIP gerado: {size_mb:.1f} MB")
-    if size_mb > 850:
-        st.warning(
-            "O ZIP ficou muito grande para download confiável pelo Streamlit Cloud. "
-            "Use partes menores ou o Fragmentador Local."
-        )
-        return
-    st.download_button(
-        label,
-        data=bytes_from_file(zip_path),
-        file_name=file_name,
-        mime="application/zip",
-        key=key,
-        use_container_width=True,
-    )
 
 def fragment_media_by_duration(input_path: str, output_dir: str, segment_seconds: int, original_suffix: str) -> list[str]:
     """Divide áudio/vídeo em partes por duração, preservando o formato quando possível."""
@@ -1393,279 +1370,104 @@ def render_conversao_privada_page():
 
 
 
-def add_history_entry(metadata: dict, plain_text: str, final_text: str, segments_data: list):
-    """Guarda histórico simples apenas na sessão atual."""
-    item = {
-        "metadata": metadata or {},
-        "plain_text": plain_text or "",
-        "final_text": final_text or "",
-        "segments": segments_data or [],
-        "created_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
-    }
-    hist = st.session_state.get("history_items", [])
-    hist.insert(0, item)
-    st.session_state["history_items"] = hist[:10]
+def build_local_fragmenter_bat() -> str:
+    """Gera assistente local para fragmentar mídia grande no Windows."""
+    bat = r"""@echo off
+chcp 65001 >nul
+setlocal
+title Transcreve Facil - Fragmentador Local
+
+echo ============================================================
+echo  Transcreve Facil - Fragmentador Local
+echo ============================================================
+echo.
+echo Use este assistente para arquivos grandes demais para o Streamlit Cloud.
+echo Ele divide videos/audios em partes menores no seu computador.
+echo.
+
+set /p INPUT=Cole o caminho completo do arquivo ou arraste o arquivo aqui e pressione ENTER: 
+set INPUT=%INPUT:"=%
+
+if "%INPUT%"=="" (
+    echo Nenhum arquivo informado.
+    pause
+    exit /b 1
+)
+
+if not exist "%INPUT%" (
+    echo Arquivo nao encontrado:
+    echo %INPUT%
+    pause
+    exit /b 1
+)
+
+set /p MINUTES=Duracao de cada parte em minutos [padrao 10]: 
+if "%MINUTES%"=="" set MINUTES=10
+set /a SECONDS=%MINUTES%*60
+
+set "OUTDIR=%USERPROFILE%\Downloads\TranscreveFacil_Fragmentado"
+if not exist "%OUTDIR%" mkdir "%OUTDIR%"
+
+echo.
+echo Verificando FFmpeg...
+where ffmpeg >nul 2>nul
+if errorlevel 1 (
+    echo FFmpeg nao encontrado. Tentando instalar pelo winget...
+    winget install Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements
+)
+
+where ffmpeg >nul 2>nul
+if errorlevel 1 (
+    echo Nao foi possivel localizar o FFmpeg.
+    echo Instale manualmente e tente novamente: https://www.gyan.dev/ffmpeg/builds/
+    pause
+    exit /b 1
+)
+
+echo.
+echo Fragmentando sem recodificar...
+ffmpeg -hide_banner -y -i "%INPUT%" -map 0 -c copy -f segment -segment_time %SECONDS% -reset_timestamps 1 "%OUTDIR%\parte_%%03d.mp4"
+
+if errorlevel 1 (
+    echo.
+    echo A divisao sem recodificar falhou. Tentando gerar audios MP3 leves...
+    ffmpeg -hide_banner -y -i "%INPUT%" -vn -acodec libmp3lame -ar 16000 -ac 1 -b:a 64k -f segment -segment_time %SECONDS% -reset_timestamps 1 "%OUTDIR%\audio_parte_%%03d.mp3"
+)
+
+if errorlevel 1 (
+    echo.
+    echo Nao foi possivel fragmentar o arquivo.
+    pause
+    exit /b 1
+)
+
+echo.
+echo Concluido. As partes foram salvas em:
+echo %OUTDIR%
+echo.
+echo Envie as partes menores no Transcreve Facil pela aba Transcrever.
+start "" "%OUTDIR%"
+pause
+"""
+    return bat.replace("\n", "\r\n")
 
 
-def make_complete_package_zip(final_text: str, plain_text: str, segments_data: list, metadata: dict) -> bytes:
-    """Gera ZIP com TXT, Word, PDF, SRT e prompts."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        files = []
-
-        txt_path = os.path.join(tmpdir, "transcricao_completa.txt")
-        with open(txt_path, "w", encoding="utf-8") as f:
-            f.write(final_text or plain_text or "")
-        files.append(txt_path)
-
-        clean_path = os.path.join(tmpdir, "transcricao_sem_marcacao.txt")
-        with open(clean_path, "w", encoding="utf-8") as f:
-            f.write(plain_text or final_text or "")
-        files.append(clean_path)
-
-        docx_path = os.path.join(tmpdir, "transcricao.docx")
-        with open(docx_path, "wb") as f:
-            f.write(save_docx((final_text or plain_text or "").splitlines(), metadata or {}))
-        files.append(docx_path)
-
-        pdf_path = os.path.join(tmpdir, "transcricao.pdf")
-        with open(pdf_path, "wb") as f:
-            f.write(save_pdf((final_text or plain_text or "").splitlines(), metadata or {}))
-        files.append(pdf_path)
-
-        if segments_data:
-            srt_path = os.path.join(tmpdir, "legenda.srt")
-            with open(srt_path, "w", encoding="utf-8") as f:
-                f.write(save_srt(segments_data))
-            files.append(srt_path)
-
-        prompts_path = os.path.join(tmpdir, "prompts.txt")
-        prompts = build_prompts(plain_text or final_text or "")
-        with open(prompts_path, "w", encoding="utf-8") as f:
-            for name, prompt in prompts.items():
-                f.write(f"===== {name} =====\n")
-                f.write(prompt)
-                f.write("\n\n")
-        files.append(prompts_path)
-
-        zip_path = os.path.join(tmpdir, "pacote_transcreve_facil.zip")
-        make_zip_from_paths(files, zip_path)
-        return bytes_from_file(zip_path)
-
-
-def render_history_session():
-    hist = st.session_state.get("history_items", [])
-    st.markdown("### Histórico da sessão")
-    st.caption("Este histórico é temporário. Ele existe apenas enquanto a sessão estiver aberta.")
-
-    if not hist:
-        st.info("Ainda não há transcrições no histórico desta sessão.")
-        return
-
-    for idx, item in enumerate(hist, start=1):
-        meta = item.get("metadata", {})
-        title = meta.get("filename") or f"Transcrição {idx}"
-        with st.expander(f"{idx}. {title} — {item.get('created_at', '')}"):
-            st.write(f"**Duração:** {meta.get('duration', '')}")
-            st.write(f"**Motor:** {meta.get('engine', meta.get('model', ''))}")
-            preview = item.get("plain_text") or item.get("final_text") or ""
-            st.text_area("Prévia", preview[:3000], height=180, key=f"hist_preview_{idx}")
-            st.download_button(
-                "Baixar TXT",
-                data=(item.get("final_text") or item.get("plain_text") or "").encode("utf-8"),
-                file_name=f"historico_transcricao_{idx:02d}.txt",
-                mime="text/plain",
-                key=f"hist_txt_{idx}",
-                use_container_width=True,
-            )
-
-
-def render_join_transcriptions_page():
-    st.subheader("Juntar transcrições")
-    st.write(
-        "Use esta página para reunir partes transcritas de vídeos longos. "
-        "Você pode enviar arquivos TXT ou colar os textos manualmente."
+def show_large_file_local_fragmenter_notice():
+    st.error(
+        "Arquivo grande demais para fragmentar com segurança dentro do Streamlit Cloud. "
+        "Para evitar queda do app no final do processamento, use o Fragmentador Local abaixo."
     )
-
-    modo = st.radio("Como deseja juntar?", ["Enviar arquivos TXT", "Colar textos"], horizontal=True)
-    textos = []
-
-    if modo == "Enviar arquivos TXT":
-        files = st.file_uploader(
-            "Envie os arquivos TXT",
-            type=["txt"],
-            accept_multiple_files=True,
-            help="Dica: nomeie como parte_01.txt, parte_02.txt, parte_03.txt.",
-        )
-        if files:
-            ordenar = st.checkbox("Ordenar por nome do arquivo", value=True)
-            if ordenar:
-                files = sorted(files, key=lambda f: f.name.lower())
-            for f in files:
-                try:
-                    textos.append((f.name, f.read().decode("utf-8", errors="ignore")))
-                except Exception:
-                    textos.append((f.name, ""))
-    else:
-        qtd = st.number_input("Quantidade de partes", min_value=1, max_value=20, value=3, step=1)
-        for i in range(int(qtd)):
-            txt = st.text_area(f"Parte {i + 1:02d}", height=140, key=f"join_part_{i}")
-            if txt.strip():
-                textos.append((f"Parte {i + 1:02d}", txt.strip()))
-
-    if not textos:
-        st.info("Envie arquivos ou cole textos para começar.")
-        return
-
-    incluir_cabecalho = st.checkbox("Incluir separador entre partes", value=True)
-    partes = []
-    for idx, (nome, txt) in enumerate(textos, start=1):
-        if incluir_cabecalho:
-            partes.append(f"\n\n===== PARTE {idx:02d} - {nome} =====\n\n{txt.strip()}")
-        else:
-            partes.append(txt.strip())
-
-    final = "\n".join(partes).strip()
-    st.success(f"{len(textos)} parte(s) reunida(s).")
-    st.text_area("Prévia do texto final", final[:6000], height=260)
-
-    metadata = {
-        "filename": "transcricoes_reunidas",
-        "duration": "",
-        "generated_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "model": "junção manual",
-    }
-
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.download_button("Baixar TXT unido", final.encode("utf-8"), "transcricoes_reunidas.txt", "text/plain", use_container_width=True)
-    with c2:
-        st.download_button("Baixar Word unido", save_docx(final.splitlines(), metadata), "transcricoes_reunidas.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
-    with c3:
-        st.download_button("Baixar PDF unido", save_pdf(final.splitlines(), metadata), "transcricoes_reunidas.pdf", "application/pdf", use_container_width=True)
-
-    with st.expander("Prompts a partir do texto unido"):
-        for name, prompt in build_prompts(final).items():
-            st.text_area(name, prompt, height=180, key=f"join_prompt_{name}")
-
-
-def render_diagnostics_page():
-    st.subheader("Diagnóstico do sistema")
-    st.write("Verifique se o ambiente está pronto para transcrever, converter, fragmentar e compactar arquivos.")
-
-    results = []
-
-    def add_result(nome, ok, detalhe=""):
-        results.append({"Teste": nome, "Status": "OK" if ok else "Atenção", "Detalhe": detalhe})
-
-    add_result("Python", True, sys.version.split()[0])
-
-    try:
-        tmp = tempfile.NamedTemporaryFile(delete=False)
-        tmp.write(b"teste")
-        tmp.close()
-        os.unlink(tmp.name)
-        add_result("Pasta temporária gravável", True, tempfile.gettempdir())
-    except Exception as e:
-        add_result("Pasta temporária gravável", False, str(e))
-
-    try:
-        r = run_command(["ffmpeg", "-version"])
-        add_result("FFmpeg", r.returncode == 0, (r.stdout or r.stderr)[:180])
-    except Exception as e:
-        add_result("FFmpeg", False, str(e))
-
-    try:
-        r = run_command(["ffprobe", "-version"])
-        add_result("FFprobe", r.returncode == 0, (r.stdout or r.stderr)[:180])
-    except Exception as e:
-        add_result("FFprobe", False, str(e))
-
-    try:
-        import yt_dlp as _yt
-        add_result("yt-dlp", True, "instalado")
-    except Exception as e:
-        add_result("yt-dlp", False, str(e))
-
-    try:
-        # Pode existir nas versões que instalam pacotes em /tmp
-        ensure_runtime_package_path()
-        add_result("Pasta de pacotes temporários", True, str(RUNTIME_PKG_DIR))
-    except Exception:
-        add_result("Pasta de pacotes temporários", True, "não aplicável nesta versão")
-
-    try:
-        import faster_whisper  # noqa
-        add_result("faster-whisper", True, "disponível")
-    except Exception:
-        add_result("faster-whisper", False, "não carregado; o app tentará instalar/carregar sob demanda")
-
-    try:
-        import speech_recognition  # noqa
-        add_result("Fallback SpeechRecognition", True, "disponível")
-    except Exception:
-        add_result("Fallback SpeechRecognition", False, "não carregado; o app tentará instalar/carregar sob demanda")
-
-    try:
-        total, used, free = shutil.disk_usage(tempfile.gettempdir())
-        add_result("Espaço temporário livre", True, f"{free / (1024**3):.2f} GB livres")
-    except Exception as e:
-        add_result("Espaço temporário livre", False, str(e))
-
-    try:
-        st.dataframe(results, use_container_width=True, hide_index=True)
-    except Exception:
-        for item in results:
-            st.write(item)
-
-    st.info("Se FFmpeg/FFprobe falhar, confira packages.txt. Se o motor de transcrição falhar, tente preparar o áudio antes.")
-
-
-def render_prepare_file_page():
-    st.subheader("Preparar arquivo para transcrição")
-    st.write("Converta vídeos grandes em áudio leve antes de transcrever. Isso reduz falhas e acelera o processamento.")
-
-    uploaded = st.file_uploader(
-        "Escolha vídeo ou áudio para preparar",
-        type=[ext.replace(".", "") for ext in SUPPORTED_EXTS],
-        key="prepare_upload",
+    st.download_button(
+        "Baixar Fragmentador Local do Transcreve Fácil",
+        data=build_local_fragmenter_bat(),
+        file_name="TranscreveFacil_Fragmentador_Local.bat",
+        mime="application/octet-stream",
+        use_container_width=True,
     )
-    if not uploaded:
-        st.info("Envie um arquivo para preparar.")
-        return
-
-    output_format = st.selectbox("Formato de saída", ["MP3 leve", "WAV 16 kHz"], index=0)
-    st.write(f"Arquivo: **{uploaded.name}** — {uploaded.size / (1024*1024):.1f} MB")
-
-    if st.button("Preparar arquivo", type="primary", use_container_width=True):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            suffix = Path(uploaded.name).suffix.lower()
-            input_path = os.path.join(tmpdir, safe_filename(uploaded.name) + suffix)
-            with open(input_path, "wb") as f:
-                f.write(uploaded.getbuffer())
-
-            if output_format == "MP3 leve":
-                out_path = os.path.join(tmpdir, "arquivo_preparado.mp3")
-                cmd = ["ffmpeg", "-y", "-i", input_path, "-vn", "-acodec", "libmp3lame", "-ar", "16000", "-ac", "1", "-b:a", "64k", out_path]
-                mime = "audio/mpeg"
-                name = "arquivo_preparado.mp3"
-            else:
-                out_path = os.path.join(tmpdir, "arquivo_preparado.wav")
-                cmd = ["ffmpeg", "-y", "-i", input_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", out_path]
-                mime = "audio/wav"
-                name = "arquivo_preparado.wav"
-
-            result = run_command(cmd)
-            if result.returncode != 0 or not os.path.exists(out_path):
-                st.error("Não foi possível preparar o arquivo.")
-                st.code((result.stderr or result.stdout or "")[-3000:])
-                return
-
-            original = os.path.getsize(input_path)
-            final = os.path.getsize(out_path)
-            reduction = 100 - (final / original * 100) if original else 0
-            st.success(f"Arquivo preparado. Tamanho final: {final/(1024*1024):.1f} MB. Redução aproximada: {reduction:.1f}%.")
-            st.download_button("Baixar arquivo preparado", bytes_from_file(out_path), file_name=name, mime=mime, use_container_width=True)
-
+    st.info(
+        "Depois de fragmentar no computador, envie as partes menores pela aba Transcrever. "
+        "Recomendação: partes de 10 a 15 minutos."
+    )
 
 # -------------------------
 # Tela principal
@@ -1690,10 +1492,7 @@ def app_screen():
             ("Transcrever", "🎙️", "Transcrever"),
             ("Resultado", "📥", "Resultado"),
             ("Prompts", "✨", "Prompts"),
-            ("Juntar transcrições", "🧩", "Juntar transcrições"),
-            ("Diagnóstico", "🩺", "Diagnóstico"),
             ("Ferramentas", "🧰", "Ferramentas"),
-            ("Preparar arquivo", "🎛️", "Preparar arquivo"),
             ("Conversao privada", "🔐", "Conversão privada"),
             ("YouTube local", "▶️", "YouTube local"),
             ("Ajuda", "❔", "Ajuda"),
@@ -1955,8 +1754,6 @@ def app_screen():
                         st.session_state["last_segments"] = segments_data
                         st.session_state["last_metadata"] = metadata
 
-                        add_history_entry(metadata, plain_text, final_text, segments_data)
-
                         progress.progress(100, text="Transcrição concluída.")
                         status_box.success("Transcrição concluída. Abra a aba Resultado para baixar os arquivos.")
                     except Exception as e:
@@ -1965,76 +1762,63 @@ def app_screen():
                         st.caption(str(e))
                         return
 
-
     elif page == "Resultado":
-        st.subheader("Resultado da transcrição")
-        final_text = st.session_state.get("last_transcription", "")
-        plain_text = st.session_state.get("last_plain_text", "")
-        segments_data = st.session_state.get("last_segments", [])
-        metadata = st.session_state.get("last_metadata", {})
-
-        if not final_text and not plain_text:
-            st.info("Nenhuma transcrição disponível ainda. Vá até Transcrever e processe um arquivo.")
-            render_history_session()
+        if not st.session_state.get("last_transcription"):
+            st.info("Nenhuma transcrição concluída nesta sessão.")
         else:
-            st.success("Transcrição disponível.")
-            st.markdown("### Prévia")
-            st.text_area("Texto transcrito", plain_text or final_text, height=300)
+            final_text = st.session_state["last_transcription"]
+            plain_text = st.session_state.get("last_plain_text", final_text)
+            lines = final_text.splitlines()
+            metadata = st.session_state.get("last_metadata", {})
+            segments_data = st.session_state.get("last_segments", [])
+            base_name = safe_filename(metadata.get("filename", "transcricao"))
 
-            c1, c2, c3 = st.columns(3)
-            with c1:
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Arquivo", metadata.get("filename", "-")[:24])
+            col2.metric("Duração", metadata.get("duration", "-"))
+            col3.metric("Modelo", metadata.get("model", "-"))
+            col4.metric("Trechos", str(len(segments_data)))
+
+            st.subheader("Transcrição")
+            st.text_area("Resultado", final_text, height=440)
+
+            st.subheader("Downloads")
+            dl1, dl2, dl3, dl4 = st.columns(4)
+            with dl1:
                 st.download_button(
-                    "Baixar TXT",
-                    data=(final_text or plain_text).encode("utf-8"),
-                    file_name="transcricao.txt",
+                    "TXT",
+                    final_text.encode("utf-8"),
+                    file_name=f"{base_name}_transcricao.txt",
                     mime="text/plain",
                     use_container_width=True,
                 )
-            with c2:
+            with dl2:
+                docx_bytes = save_docx(lines, metadata)
                 st.download_button(
-                    "Baixar Word",
-                    data=save_docx((final_text or plain_text).splitlines(), metadata),
-                    file_name="transcricao.docx",
+                    "Word",
+                    docx_bytes,
+                    file_name=f"{base_name}_transcricao.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True,
                 )
-            with c3:
+            with dl3:
+                pdf_bytes = save_pdf(lines, metadata)
                 st.download_button(
-                    "Baixar PDF",
-                    data=save_pdf((final_text or plain_text).splitlines(), metadata),
-                    file_name="transcricao.pdf",
+                    "PDF",
+                    pdf_bytes,
+                    file_name=f"{base_name}_transcricao.pdf",
                     mime="application/pdf",
                     use_container_width=True,
                 )
-
-            c4, c5 = st.columns(2)
-            with c4:
-                if segments_data:
-                    st.download_button(
-                        "Baixar SRT",
-                        data=save_srt(segments_data).encode("utf-8"),
-                        file_name="legenda.srt",
-                        mime="text/plain",
-                        use_container_width=True,
-                    )
-            with c5:
+            with dl4:
+                srt_text = build_srt(segments_data)
                 st.download_button(
-                    "Baixar pacote completo ZIP",
-                    data=make_complete_package_zip(final_text, plain_text, segments_data, metadata),
-                    file_name="pacote_transcreve_facil.zip",
-                    mime="application/zip",
+                    "SRT",
+                    srt_text.encode("utf-8"),
+                    file_name=f"{base_name}_legenda.srt",
+                    mime="text/plain",
                     use_container_width=True,
                 )
-
-            st.markdown("### Copiar transcrição")
-            st.caption("Use Ctrl+A e Ctrl+C dentro da caixa abaixo.")
-            st.text_area("Texto limpo para copiar", plain_text or final_text, height=220, key="copy_text_box")
-
-            with st.expander("Prompts rápidos a partir desta transcrição"):
-                for name, prompt in build_prompts(plain_text or final_text).items():
-                    st.text_area(name, prompt, height=160, key=f"result_prompt_{name}")
-
-            render_history_session()
 
     elif page == "Prompts":
         if not st.session_state.get("last_plain_text"):
@@ -2053,16 +1837,6 @@ def app_screen():
                         mime="text/plain",
                     )
 
-
-
-    elif page == "Juntar transcrições":
-        render_join_transcriptions_page()
-
-    elif page == "Diagnóstico":
-        render_diagnostics_page()
-
-    elif page == "Preparar arquivo":
-        render_prepare_file_page()
 
     elif page == "Ferramentas":
         st.subheader("Ferramentas de arquivo")

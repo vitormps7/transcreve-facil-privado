@@ -27,7 +27,7 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 APP_NAME = "Transcreve Fácil"
-APP_VERSION = "v18.16 - fragmentador local robusto"
+APP_VERSION = "v18.17 - audio primeiro para transcrição"
 ASSET_DIR = Path(__file__).parent / "assets"
 LOGO_FULL = ASSET_DIR / "logo_full.png"
 LOGO_ICON = ASSET_DIR / "logo_icon.png"
@@ -1431,17 +1431,17 @@ if (-not $ffmpeg -or -not (Test-Path $ffmpeg)) {
 
 Write-Host ""
 Write-Host ("FFmpeg localizado: " + $ffmpeg)
-Write-Host "Fragmentando sem recodificar..."
-$patternMp4 = Join-Path $outDir "parte_%03d.mp4"
-$args1 = @("-hide_banner", "-y", "-i", $inputPath, "-map", "0", "-c", "copy", "-f", "segment", "-segment_time", "$seconds", "-reset_timestamps", "1", $patternMp4)
+Write-Host "Gerando partes de AUDIO MP3 leves para transcricao..."
+$patternMp3 = Join-Path $outDir "audio_parte_%03d.mp3"
+$args1 = @("-hide_banner", "-y", "-i", $inputPath, "-vn", "-acodec", "libmp3lame", "-ar", "16000", "-ac", "1", "-b:a", "64k", "-f", "segment", "-segment_time", "$seconds", "-reset_timestamps", "1", $patternMp3)
 & $ffmpeg @args1
 $code = $LASTEXITCODE
 
 if ($code -ne 0) {
     Write-Host ""
-    Write-Host "A divisao sem recodificar falhou. Tentando gerar audios MP3 leves..."
-    $patternMp3 = Join-Path $outDir "audio_parte_%03d.mp3"
-    $args2 = @("-hide_banner", "-y", "-i", $inputPath, "-vn", "-acodec", "libmp3lame", "-ar", "16000", "-ac", "1", "-b:a", "64k", "-f", "segment", "-segment_time", "$seconds", "-reset_timestamps", "1", $patternMp3)
+    Write-Host "A geracao de MP3 falhou. Tentando dividir o arquivo sem recodificar..."
+    $patternMp4 = Join-Path $outDir "parte_%03d.mp4"
+    $args2 = @("-hide_banner", "-y", "-i", $inputPath, "-map", "0", "-c", "copy", "-f", "segment", "-segment_time", "$seconds", "-reset_timestamps", "1", $patternMp4)
     & $ffmpeg @args2
     $code = $LASTEXITCODE
 }
@@ -1612,7 +1612,7 @@ def app_screen():
         st.markdown(
             "<div class='tf-card'><h3>Enviar arquivo para transcrição</h3>"
             "<p>Use o botão de upload abaixo. O quadro anterior foi removido porque era apenas visual.</p>"
-            "<p><b>Formatos aceitos:</b> MP3, MP4, WAV, M4A, MOV, AAC e outros formatos compatíveis.</p></div>",
+            "<p><b>Formatos aceitos:</b> MP3, MP4, WAV, M4A, MOV, AAC e outros formatos compatíveis.</p><p><b>Para vídeos grandes:</b> use o Fragmentador Local robusto e envie as partes MP3.</p></div>",
             unsafe_allow_html=True,
         )
 
@@ -1688,6 +1688,10 @@ def app_screen():
 
             if origem == "Enviar arquivo" and suffix not in AUDIO_EXTS and suffix not in VIDEO_EXTS:
                 st.error("Formato não suportado.")
+                return
+            if origem == "Enviar arquivo" and suffix in VIDEO_EXTS and uploaded.size > 120 * 1024 * 1024:
+                st.error("Este vídeo ainda está grande demais para transcrever no Streamlit Cloud sem risco de queda.")
+                st.info("Use Ferramentas > Baixar Fragmentador Local robusto. Ele agora gera partes MP3 leves para transcrição. Envie os arquivos audio_parte_000.mp3, audio_parte_001.mp3 etc., não as partes MP4.")
                 return
             if origem == "URL do YouTube" and not is_supported_url(youtube_url):
                 st.error("URL não suportada. Use uma URL do YouTube, como youtube.com ou youtu.be.")
@@ -1867,7 +1871,7 @@ def app_screen():
         st.markdown("### Fragmentador Local")
         st.write(
             "Use este assistente para dividir vídeos, áudios ou arquivos grandes diretamente no seu computador. "
-            "Depois envie as partes menores pela aba **Transcrever**."
+            "Depois envie as partes MP3 menores pela aba **Transcrever**."
         )
 
         c1, c2 = st.columns([1, 1])
@@ -1880,7 +1884,7 @@ def app_screen():
                 use_container_width=True,
             )
         with c2:
-            st.info("Recomendação: partes de 10 a 15 minutos para vídeos de reunião, aula ou webinário.")
+            st.info("Recomendação: gere partes em MP3 de 10 a 15 minutos. Evite enviar partes MP4 grandes para transcrição.")
 
         st.markdown("### Como usar")
         st.write(
